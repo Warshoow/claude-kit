@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 import { Search, Upload, X } from "lucide-vue-next";
+import { useAppStore } from "@/stores/app";
 import type { Asset, AssetKind } from "@/lib/types";
 import { assetKey } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -15,24 +18,17 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-const props = defineProps<{
-  library: Asset[];
-  installedKeys: Set<string>;
-  canInstall: boolean;
-}>();
+const store = useAppStore();
+const router = useRouter();
+const { library, installedKeys, projectPath } = storeToRefs(store);
 
-const emit = defineEmits<{
-  toggle: [asset: Asset];
-  select: [asset: Asset];
-  import: [];
-}>();
-
+const canInstall = computed(() => !!projectPath.value);
 const query = ref("");
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
-  if (!q) return props.library;
-  return props.library.filter((a) => {
+  if (!q) return library.value;
+  return library.value.filter((a) => {
     if (a.name.toLowerCase().includes(q)) return true;
     if (a.description?.toLowerCase().includes(q)) return true;
     if (a.tags?.some((t) => t.toLowerCase().includes(q))) return true;
@@ -47,43 +43,31 @@ const grouped = computed(() => {
   return g;
 });
 
-function onRowClick(a: Asset) {
-  emit("select", a);
+function openAsset(a: Asset) {
+  router.push({
+    name: "asset-detail",
+    params: { kind: a.kind, name: a.name },
+  });
 }
 
 function onCheckboxChange(a: Asset) {
-  if (!props.canInstall) return;
-  emit("toggle", a);
+  if (!canInstall.value) return;
+  store.toggleAsset(a);
 }
 </script>
 
 <template>
   <TooltipProvider :delay-duration="200">
     <div class="flex h-full flex-col overflow-hidden">
-      <!-- Header -->
-      <div
-        class="flex items-center gap-2 border-b bg-card/40 px-4 py-2.5"
-      >
-        <span class="text-sm font-semibold">Library</span>
+      <!-- Toolbar: count + search + import -->
+      <div class="flex items-center gap-3 border-b px-4 py-2">
         <span class="text-xs text-muted-foreground">
           {{ filtered.length
           }}<span v-if="filtered.length !== library.length">/{{ library.length }}</span>
+          asset{{ filtered.length === 1 ? "" : "s" }}
         </span>
-        <div class="flex-1" />
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="outline" size="sm" @click="emit('import')">
-              <Upload />
-              Import
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Import assets from a plugin folder</TooltipContent>
-        </Tooltip>
-      </div>
 
-      <!-- Search -->
-      <div class="border-b px-3 py-2">
-        <div class="relative">
+        <div class="relative flex-1 max-w-md">
           <Search
             class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
           />
@@ -102,24 +86,37 @@ function onCheckboxChange(a: Asset) {
             <X class="size-3" />
           </button>
         </div>
+
+        <div class="flex-1" />
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="outline" size="sm" @click="store.importLocalPlugin">
+              <Upload />
+              Import
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Import assets from a plugin folder</TooltipContent>
+        </Tooltip>
       </div>
 
       <!-- Body -->
       <ScrollArea class="flex-1 min-h-0">
         <template v-if="library.length === 0">
-          <div class="px-6 py-10 text-center text-xs text-muted-foreground">
+          <div class="px-6 py-12 text-center text-xs text-muted-foreground">
             Empty library.<br />
-            Add files to <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">~/.claude-assets/library/</code>
-            or import a plugin.
+            Add files to
+            <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">~/.claude-assets/library/</code>
+            or import a plugin folder.
           </div>
         </template>
         <template v-else-if="filtered.length === 0">
-          <div class="px-6 py-10 text-center text-xs text-muted-foreground">
+          <div class="px-6 py-12 text-center text-xs text-muted-foreground">
             No match for "{{ query }}".
           </div>
         </template>
         <template v-else>
-          <div class="space-y-3 p-2">
+          <div class="space-y-3 p-3">
             <div
               v-for="kind in (['skills', 'commands', 'agents'] as AssetKind[])"
               :key="kind"
@@ -128,7 +125,8 @@ function onCheckboxChange(a: Asset) {
                 <div
                   class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
                 >
-                  {{ kind }} <span class="font-normal opacity-70">{{ grouped[kind].length }}</span>
+                  {{ kind }}
+                  <span class="font-normal opacity-70">{{ grouped[kind].length }}</span>
                 </div>
                 <div class="space-y-0.5">
                   <div
@@ -141,9 +139,9 @@ function onCheckboxChange(a: Asset) {
                         : ''
                     "
                     tabindex="0"
-                    @click="onRowClick(a)"
-                    @keydown.enter="onRowClick(a)"
-                    @keydown.space.prevent="onRowClick(a)"
+                    @click="openAsset(a)"
+                    @keydown.enter="openAsset(a)"
+                    @keydown.space.prevent="openAsset(a)"
                   >
                     <Tooltip>
                       <TooltipTrigger as-child>
@@ -156,7 +154,11 @@ function onCheckboxChange(a: Asset) {
                         />
                       </TooltipTrigger>
                       <TooltipContent>
-                        {{ canInstall ? "Toggle install in project" : "Pick a project to install" }}
+                        {{
+                          canInstall
+                            ? "Toggle install in project"
+                            : "Pick a project to install"
+                        }}
                       </TooltipContent>
                     </Tooltip>
 

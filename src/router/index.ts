@@ -20,6 +20,19 @@ const routes: RouteRecordRaw[] = [
     path: "/browse",
     name: "browse",
     component: () => import("@/views/BrowseView.vue"),
+    redirect: "/browse/library",
+    children: [
+      {
+        path: "library",
+        name: "browse-library",
+        component: () => import("@/views/BrowseLibraryView.vue"),
+      },
+      {
+        path: "marketplace",
+        name: "browse-marketplace",
+        component: () => import("@/views/BrowseMarketplaceView.vue"),
+      },
+    ],
   },
   {
     path: "/library/:kind/:name",

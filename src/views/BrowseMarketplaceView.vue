@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import { storeToRefs } from "pinia";
 import { Download, RefreshCw, Search, X } from "lucide-vue-next";
-import type { Marketplace, Plugin, PluginSource } from "@/lib/types";
+import { useAppStore } from "@/stores/app";
+import type { Plugin, PluginSource } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,23 +17,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const props = defineProps<{
-  marketplace: Marketplace | null;
-  loading: boolean;
-  error: string | null;
-  importingPlugin: string | null;
-}>();
-
-defineEmits<{
-  refresh: [];
-  import: [plugin: Plugin];
-  select: [plugin: Plugin];
-}>();
+const store = useAppStore();
+const router = useRouter();
+const {
+  marketplace,
+  marketplaceLoading,
+  marketplaceError,
+  importingPlugin,
+} = storeToRefs(store);
 
 const query = ref("");
 const selectedCategory = ref<string>("all");
 
-const plugins = computed<Plugin[]>(() => props.marketplace?.plugins ?? []);
+const plugins = computed<Plugin[]>(() => marketplace.value?.plugins ?? []);
 
 const categories = computed<string[]>(() => {
   const set = new Set<string>();
@@ -60,6 +59,10 @@ function clearFilters() {
   selectedCategory.value = "all";
 }
 
+function openPlugin(p: Plugin) {
+  router.push({ name: "plugin-detail", params: { name: p.name } });
+}
+
 function sourceLabel(src: PluginSource): string {
   if (typeof src === "string") return src;
   if (src.source === "url") return shortRepo(src.url);
@@ -74,39 +77,26 @@ function shortRepo(url: string): string {
     .replace(/^github\.com\//, "")
     .replace(/\.git$/, "");
 }
+
+// Lazy fetch on first visit; cached afterwards.
+onMounted(() => store.loadMarketplace());
 </script>
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="flex items-center gap-3 border-b bg-card/40 px-6 py-3">
-      <div class="flex items-baseline gap-2">
-        <span class="text-sm font-semibold">{{ marketplace?.name ?? "Discover" }}</span>
-        <span v-if="marketplace" class="text-xs text-muted-foreground">
+    <!-- Toolbar: count + search + filter + refresh -->
+    <div class="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+      <span class="text-xs text-muted-foreground">
+        <template v-if="marketplace">
+          {{ marketplace.name }} ·
           {{ filtered.length
           }}<span v-if="filtered.length !== plugins.length"
             >/{{ plugins.length }}</span
           >
-          plugins
-        </span>
-      </div>
-      <div class="flex-1" />
-      <Button
-        variant="outline"
-        size="sm"
-        :disabled="loading"
-        @click="$emit('refresh')"
-      >
-        <RefreshCw :class="loading ? 'animate-spin' : ''" />
-        {{ loading ? "Loading…" : "Refresh" }}
-      </Button>
-    </div>
+          plugin{{ filtered.length === 1 ? "" : "s" }}
+        </template>
+      </span>
 
-    <!-- Filters -->
-    <div
-      v-if="marketplace"
-      class="flex items-center gap-2 border-b px-6 py-2.5"
-    >
       <div class="relative flex-1 max-w-md">
         <Search
           class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -115,11 +105,12 @@ function shortRepo(url: string): string {
           v-model="query"
           type="text"
           placeholder="Search name, description, author…"
-          class="h-9 pl-8"
+          class="h-8 pl-8"
         />
       </div>
+
       <Select v-model="selectedCategory">
-        <SelectTrigger class="h-9 w-[200px]">
+        <SelectTrigger class="h-8 w-[180px]">
           <SelectValue placeholder="All categories" />
         </SelectTrigger>
         <SelectContent>
@@ -129,6 +120,7 @@ function shortRepo(url: string): string {
           </SelectItem>
         </SelectContent>
       </Select>
+
       <Button
         v-if="hasActiveFilter"
         variant="ghost"
@@ -138,20 +130,45 @@ function shortRepo(url: string): string {
         <X />
         Clear
       </Button>
+
+      <div class="flex-1" />
+
+      <Button
+        variant="outline"
+        size="sm"
+        :disabled="marketplaceLoading"
+        @click="store.loadMarketplace(true)"
+      >
+        <RefreshCw :class="marketplaceLoading ? 'animate-spin' : ''" />
+        {{ marketplaceLoading ? "Loading…" : "Refresh" }}
+      </Button>
     </div>
 
     <!-- Body -->
     <ScrollArea class="flex-1 min-h-0">
-      <div v-if="loading && !marketplace" class="px-6 py-16 text-center text-sm text-muted-foreground">
+      <div
+        v-if="marketplaceLoading && !marketplace"
+        class="px-6 py-16 text-center text-sm text-muted-foreground"
+      >
         Fetching marketplace…
       </div>
-      <div v-else-if="error" class="m-6 rounded-lg border border-destructive/30 bg-destructive/10 p-4">
-        <div class="text-sm font-medium text-destructive">Failed to load marketplace</div>
-        <code class="mt-2 block break-words text-xs text-muted-foreground">{{ error }}</code>
-        <Button class="mt-3" size="sm" variant="outline" @click="$emit('refresh')">
-          Retry
-        </Button>
+
+      <div
+        v-else-if="marketplaceError"
+        class="m-6 rounded-lg border border-destructive/30 bg-destructive/10 p-4"
+      >
+        <div class="text-sm font-medium text-destructive">
+          Failed to load marketplace
+        </div>
+        <code class="mt-2 block break-words text-xs text-muted-foreground">{{ marketplaceError }}</code>
+        <Button
+          class="mt-3"
+          size="sm"
+          variant="outline"
+          @click="store.loadMarketplace(true)"
+        >Retry</Button>
       </div>
+
       <div
         v-else-if="filtered.length === 0"
         class="px-6 py-16 text-center text-sm text-muted-foreground"
@@ -159,6 +176,7 @@ function shortRepo(url: string): string {
         <template v-if="plugins.length === 0">No plugins.</template>
         <template v-else>No match for the current filters.</template>
       </div>
+
       <div
         v-else
         class="grid gap-4 p-6"
@@ -169,9 +187,9 @@ function shortRepo(url: string): string {
           :key="p.name"
           class="group flex cursor-pointer flex-col rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           tabindex="0"
-          @click="$emit('select', p)"
-          @keydown.enter="$emit('select', p)"
-          @keydown.space.prevent="$emit('select', p)"
+          @click="openPlugin(p)"
+          @keydown.enter="openPlugin(p)"
+          @keydown.space.prevent="openPlugin(p)"
         >
           <header class="flex items-start justify-between gap-2">
             <h3 class="break-words text-sm font-semibold leading-snug">
@@ -201,7 +219,7 @@ function shortRepo(url: string): string {
             <Button
               size="sm"
               :disabled="!!importingPlugin"
-              @click.stop="$emit('import', p)"
+              @click.stop="store.importMarketplacePlugin(p)"
             >
               <Download />
               {{ importingPlugin === p.name ? "Importing…" : "Import" }}
@@ -209,7 +227,7 @@ function shortRepo(url: string): string {
             <Button
               variant="ghost"
               size="sm"
-              @click.stop="$emit('select', p)"
+              @click.stop="openPlugin(p)"
             >Details</Button>
           </div>
         </article>

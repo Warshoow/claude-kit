@@ -124,6 +124,11 @@ fn import_marketplace_plugin(
 }
 
 #[tauri::command]
+fn fetch_plugin_readme(plugin: Plugin) -> Result<Option<String>, String> {
+    marketplace::fetch_readme(&plugin).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -167,6 +172,7 @@ fn main() {
             write_asset,
             list_marketplace_plugins,
             import_marketplace_plugin,
+            fetch_plugin_readme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

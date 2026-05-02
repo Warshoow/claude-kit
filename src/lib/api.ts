@@ -40,4 +40,6 @@ export const api = {
     invoke<Marketplace>("list_marketplace_plugins", { url }),
   importMarketplacePlugin: (plugin: Plugin) =>
     invoke<ImportResult>("import_marketplace_plugin", { plugin }),
+  fetchPluginReadme: (plugin: Plugin) =>
+    invoke<string | null>("fetch_plugin_readme", { plugin }),
 };

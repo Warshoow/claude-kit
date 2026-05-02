@@ -98,16 +98,13 @@ pub fn fetch_marketplace(url: &str) -> Result<Marketplace> {
     Ok(m)
 }
 
-struct Resolved {
-    tarball_url: String,
-    /// Path inside the extracted top-level dir where the plugin lives.
-    /// Empty string means the plugin sits at the repo root.
+struct ResolvedRef {
+    /// "owner/name"
+    repo: String,
+    /// Branch, tag or commit sha — anything GitHub accepts as a ref.
+    git_ref: String,
+    /// Path inside the repo where the plugin lives. Empty means repo root.
     subdir: String,
-}
-
-fn github_tarball_url(repo: &str, git_ref: &str) -> String {
-    // codeload.github.com is the direct tar.gz endpoint (no API rate limit, no auth).
-    format!("https://codeload.github.com/{repo}/tar.gz/{git_ref}")
 }
 
 fn parse_github_url(url: &str) -> Result<String> {
@@ -123,22 +120,24 @@ fn parse_github_url(url: &str) -> Result<String> {
     Ok(after.to_string())
 }
 
-fn resolve_source(src: &PluginSource) -> Result<Resolved> {
+fn resolve_source(src: &PluginSource) -> Result<ResolvedRef> {
     match src {
         PluginSource::Inline(path) => {
             // Path is relative to the marketplace's host repo (e.g. "./plugins/foo").
             let subdir = path.trim_start_matches("./").trim_start_matches('/').to_string();
-            Ok(Resolved {
-                tarball_url: github_tarball_url(MARKETPLACE_REPO, DEFAULT_REF),
+            Ok(ResolvedRef {
+                repo: MARKETPLACE_REPO.to_string(),
+                git_ref: DEFAULT_REF.to_string(),
                 subdir,
             })
         }
         PluginSource::Object(obj) => match obj {
             PluginSourceObject::Url { url, sha } => {
                 let repo = parse_github_url(url)?;
-                let git_ref = sha.as_deref().unwrap_or(DEFAULT_REF);
-                Ok(Resolved {
-                    tarball_url: github_tarball_url(&repo, git_ref),
+                let git_ref = sha.as_deref().unwrap_or(DEFAULT_REF).to_string();
+                Ok(ResolvedRef {
+                    repo,
+                    git_ref,
                     subdir: String::new(),
                 })
             }
@@ -147,21 +146,59 @@ fn resolve_source(src: &PluginSource) -> Result<Resolved> {
                 let r = sha.as_deref()
                     .or(git_ref.as_deref())
                     .or(branch.as_deref())
-                    .unwrap_or(DEFAULT_REF);
-                Ok(Resolved {
-                    tarball_url: github_tarball_url(&repo, r),
+                    .unwrap_or(DEFAULT_REF)
+                    .to_string();
+                Ok(ResolvedRef {
+                    repo,
+                    git_ref: r,
                     subdir: path.clone(),
                 })
             }
             PluginSourceObject::Github { repo, commit } => {
-                let git_ref = commit.as_deref().unwrap_or(DEFAULT_REF);
-                Ok(Resolved {
-                    tarball_url: github_tarball_url(repo, git_ref),
+                let git_ref = commit.as_deref().unwrap_or(DEFAULT_REF).to_string();
+                Ok(ResolvedRef {
+                    repo: repo.clone(),
+                    git_ref,
                     subdir: String::new(),
                 })
             }
         },
     }
+}
+
+fn tarball_url(r: &ResolvedRef) -> String {
+    // codeload.github.com is the direct tar.gz endpoint (no API rate limit, no auth).
+    format!("https://codeload.github.com/{}/tar.gz/{}", r.repo, r.git_ref)
+}
+
+fn readme_urls(r: &ResolvedRef) -> Vec<String> {
+    let base = format!("https://raw.githubusercontent.com/{}/{}", r.repo, r.git_ref);
+    let mut urls = Vec::with_capacity(4);
+    // Try the plugin's own subdir first (may have a tailored README), then
+    // fall back to the repo root (single-plugin repos host README at root).
+    if !r.subdir.is_empty() {
+        urls.push(format!("{base}/{}/README.md", r.subdir));
+        urls.push(format!("{base}/{}/readme.md", r.subdir));
+    }
+    urls.push(format!("{base}/README.md"));
+    urls.push(format!("{base}/readme.md"));
+    urls
+}
+
+pub fn fetch_readme(plugin: &Plugin) -> Result<Option<String>> {
+    let resolved = resolve_source(&plugin.source)?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("claude-kit/0.1")
+        .build()?;
+
+    for url in readme_urls(&resolved) {
+        let resp = client.get(&url).send()?;
+        if resp.status().is_success() {
+            return Ok(Some(resp.text()?));
+        }
+    }
+    Ok(None)
 }
 
 fn parse_kind_name(entry: &str) -> Option<(AssetKind, &str)> {
@@ -185,7 +222,7 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
         .user_agent("claude-kit/0.1")
         .build()?;
     let bytes = client
-        .get(&resolved.tarball_url)
+        .get(tarball_url(&resolved))
         .send()?
         .error_for_status()?
         .bytes()?;

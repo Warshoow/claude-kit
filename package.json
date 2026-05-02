@@ -9,9 +9,12 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "vue": "^3.5.0",
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0"
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.4.2",
+    "marked": "^18.0.3",
+    "vue": "^3.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

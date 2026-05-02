@@ -9,7 +9,11 @@ const props = defineProps<{
   importingPlugin: string | null;
 }>();
 
-defineEmits<{ refresh: []; import: [plugin: Plugin] }>();
+defineEmits<{
+  refresh: [];
+  import: [plugin: Plugin];
+  select: [plugin: Plugin];
+}>();
 
 const query = ref("");
 const selectedCategory = ref<string>("");
@@ -92,25 +96,34 @@ function shortRepo(url: string): string {
         <template v-else>No match.</template>
       </div>
       <div v-else class="plugin-grid">
-        <div v-for="p in filtered" :key="p.name" class="plugin-card">
+        <div
+          v-for="p in filtered"
+          :key="p.name"
+          class="plugin-card"
+          tabindex="0"
+          @click="$emit('select', p)"
+          @keydown.enter="$emit('select', p)"
+          @keydown.space.prevent="$emit('select', p)"
+        >
           <div class="plugin-head">
             <div class="plugin-name">{{ p.name }}</div>
             <span v-if="p.category" class="plugin-cat">{{ p.category }}</span>
           </div>
           <div class="plugin-desc">{{ p.description }}</div>
           <div class="plugin-meta">
-            <span v-if="p.author" class="plugin-author">by {{ p.author.name }}</span>
+            <span v-if="p.author" class="plugin-author">{{ p.author.name }}</span>
+            <span class="plugin-meta-dot" v-if="p.author">·</span>
             <span class="plugin-source" :title="sourceLabel(p.source)">{{ sourceLabel(p.source) }}</span>
           </div>
           <div class="plugin-actions">
             <button
               class="primary"
               :disabled="!!importingPlugin"
-              @click="$emit('import', p)"
+              @click.stop="$emit('import', p)"
             >
               {{ importingPlugin === p.name ? "Importing…" : "Import" }}
             </button>
-            <a v-if="p.homepage" :href="p.homepage" target="_blank" rel="noopener" class="plugin-home">Homepage ↗</a>
+            <button class="ghost" @click.stop="$emit('select', p)">Details</button>
           </div>
         </div>
       </div>
@@ -129,10 +142,11 @@ function shortRepo(url: string): string {
 .discover-header {
   display: flex;
   align-items: center;
-  padding: 10px 14px;
+  padding: 12px 18px;
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .discover-title {
@@ -152,10 +166,11 @@ function shortRepo(url: string): string {
 
 .discover-filters {
   display: flex;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 10px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--border);
   align-items: center;
+  flex-shrink: 0;
 }
 
 .discover-filters input[type="text"] {
@@ -181,23 +196,39 @@ function shortRepo(url: string): string {
 .discover-body {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  padding: 18px;
 }
 
 .plugin-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
 }
 
 .plugin-card {
   display: flex;
   flex-direction: column;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-elev);
-  gap: 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast),
+              box-shadow var(--t-fast), transform var(--t-fast);
+  outline: none;
+}
+
+.plugin-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.plugin-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .plugin-head {
@@ -214,20 +245,23 @@ function shortRepo(url: string): string {
 
 .plugin-cat {
   padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--bg);
-  font-size: 11px;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   flex-shrink: 0;
+  font-weight: 500;
 }
 
 .plugin-desc {
   color: var(--text-dim);
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.5;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -235,13 +269,18 @@ function shortRepo(url: string): string {
 .plugin-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
   font-size: 11px;
   color: var(--text-faint);
+  align-items: center;
 }
 
 .plugin-author {
-  font-style: italic;
+  color: var(--text-dim);
+}
+
+.plugin-meta-dot {
+  opacity: 0.6;
 }
 
 .plugin-source {
@@ -255,19 +294,14 @@ function shortRepo(url: string): string {
 .plugin-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   margin-top: auto;
   padding-top: 4px;
 }
 
-.plugin-home {
-  color: var(--text-dim);
+.plugin-actions button {
   font-size: 12px;
-  text-decoration: none;
-}
-
-.plugin-home:hover {
-  color: var(--accent);
+  padding: 5px 12px;
 }
 
 .discover-error {

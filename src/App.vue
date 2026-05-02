@@ -9,6 +9,7 @@ import BundlesColumn from "./components/BundlesColumn.vue";
 import ProjectColumn from "./components/ProjectColumn.vue";
 import AssetEditor from "./components/AssetEditor.vue";
 import DiscoverView from "./components/DiscoverView.vue";
+import PluginDetail from "./components/PluginDetail.vue";
 
 type View = "manage" | "discover";
 
@@ -26,6 +27,10 @@ const marketplace = ref<Marketplace | null>(null);
 const marketplaceLoading = ref(false);
 const marketplaceError = ref<string | null>(null);
 const importingPlugin = ref<string | null>(null);
+const selectedPlugin = ref<Plugin | null>(null);
+const readme = ref<string | null>(null);
+const readmeLoading = ref(false);
+const readmeError = ref<string | null>(null);
 
 const installedKeys = computed(() => new Set(installed.value.map(assetKey)));
 
@@ -143,6 +148,24 @@ async function onSwitchView(v: View) {
   if (v === "discover") await loadMarketplace();
 }
 
+async function onSelectPlugin(plugin: Plugin) {
+  selectedPlugin.value = plugin;
+  readme.value = null;
+  readmeError.value = null;
+  readmeLoading.value = true;
+  try {
+    readme.value = await api.fetchPluginReadme(plugin);
+  } catch (e) {
+    readmeError.value = String(e);
+  } finally {
+    readmeLoading.value = false;
+  }
+}
+
+function onCloseDetail() {
+  selectedPlugin.value = null;
+}
+
 async function onImportMarketplacePlugin(plugin: Plugin) {
   if (importingPlugin.value) return;
   importingPlugin.value = plugin.name;
@@ -234,6 +257,17 @@ onMounted(refreshAll);
       :error="marketplaceError"
       :importing-plugin="importingPlugin"
       @refresh="loadMarketplace(true)"
+      @import="onImportMarketplacePlugin"
+      @select="onSelectPlugin"
+    />
+
+    <PluginDetail
+      :plugin="selectedPlugin"
+      :readme="readme"
+      :readme-loading="readmeLoading"
+      :readme-error="readmeError"
+      :importing="!!selectedPlugin && importingPlugin === selectedPlugin.name"
+      @close="onCloseDetail"
       @import="onImportMarketplacePlugin"
     />
 

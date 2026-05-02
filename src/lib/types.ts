@@ -6,6 +6,13 @@ export interface Asset {
   path: string;
   description?: string;
   tags?: string[];
+  origin?: Origin;
+}
+
+export interface Origin {
+  marketplace: string;
+  plugin: string;
+  imported_at: string;
 }
 
 export interface BundleRef {
@@ -37,3 +44,30 @@ export interface ImportResult {
 export function assetKey(a: { kind: AssetKind; name: string }): string {
   return `${a.kind}:${a.name}`;
 }
+
+// Marketplace types — mirror src-tauri/src/marketplace.rs
+export interface Marketplace {
+  name: string;
+  description?: string;
+  owner?: { name: string; email?: string };
+  plugins: Plugin[];
+}
+
+export interface Plugin {
+  name: string;
+  description: string;
+  source: PluginSource;
+  category?: string;
+  author?: { name: string; email?: string };
+  homepage?: string;
+  version?: string;
+}
+
+// `source` is polymorphic in the upstream JSON: a string ("./plugins/foo")
+// or a tagged object. We mirror the Rust enum here.
+export type PluginSource = string | PluginSourceObject;
+
+export type PluginSourceObject =
+  | { source: "url"; url: string; sha?: string }
+  | { source: "git-subdir"; url: string; path: string; ref?: string; sha?: string; branch?: string }
+  | { source: "github"; repo: string; commit?: string };

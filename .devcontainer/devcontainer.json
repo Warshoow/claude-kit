@@ -1,0 +1,75 @@
+{
+  "name": "${localWorkspaceFolderBasename} (Perso)",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+
+  // ── Extensions VS Code ──────────────────────────────────
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Rust
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        // Tauri
+        "tauri-apps.tauri-vscode",
+        // Frontend
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "vue.volar",
+        // DX
+        "usernamehw.errorlens",
+        "fill-labs.dependi",
+        "anthropic.claude-code"
+
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy",
+        "editor.formatOnSave": true,
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        }
+      }
+    }
+  },
+
+  // ── Volumes pour les perfs de compilation ────────────────
+  "mounts": [
+    // Cache le dossier target/ dans un volume Docker (évite les I/O lents)
+    "source=rust-tauri-target,target=${containerWorkspaceFolder}/src-tauri/target,type=volume",
+    // Persiste le cache Cargo entre les rebuilds du conteneur
+    "source=rust-cargo-registry,target=/usr/local/cargo/registry,type=volume",
+    // node_modules dans un volume nommé : pas dans le repo host, vidable via `docker volume rm claude-kit-node-modules`
+    "source=claude-kit-node-modules,target=${containerWorkspaceFolder}/node_modules,type=volume",
+
+    "source=${localEnv:HOME}/.claude-perso,target=/home/vscode/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached,readonly",
+
+    // ── WSLg : permet à Tauri d'ouvrir une fenêtre depuis le conteneur ──
+    // Requiert WSL2 + WSLg sur l'hôte. Supprime ces deux lignes hors WSL.
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+    "source=/mnt/wslg,target=/mnt/wslg,type=bind"
+  ],
+  "remoteEnv": {
+    "GIT_CONFIG_GLOBAL": "/tmp/gitconfig",
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    // ── Affichage WSLg (X11 + Wayland) ──────────────────────
+    "DISPLAY": ":0",
+    "WAYLAND_DISPLAY": "wayland-0",
+    "XDG_RUNTIME_DIR": "/mnt/wslg/runtime-dir",
+    "PULSE_SERVER": "/mnt/wslg/PulseServer"
+  },
+
+  // ── Ports exposés ───────────────────────────────────────
+  "forwardPorts": [
+    1420  // Vite dev server (frontend Tauri)
+  ],
+
+  // ── Post-création : installer les dépendances ──────────
+  "postCreateCommand": "bash .devcontainer/setup-dev.sh",
+
+  // ── Exécuter en tant que user non-root ──────────────────
+  "remoteUser": "vscode"
+}

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use gray_matter::{engine::YAML, Matter};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -33,12 +34,49 @@ pub struct Asset {
     pub path: String,
     pub description: Option<String>,
     pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub origin: Option<Origin>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Origin {
+    /// Marketplace name (e.g. "claude-plugins-official").
+    pub marketplace: String,
+    /// Plugin name as listed in the marketplace.
+    pub plugin: String,
+    /// ISO 8601 timestamp.
+    pub imported_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportResult {
     pub imported: Vec<String>,
     pub skipped: Vec<String>,
+}
+
+pub type OriginsMap = HashMap<String, Origin>;
+
+fn origins_path() -> PathBuf {
+    library_dir().join(".origins.json")
+}
+
+pub fn read_origins() -> OriginsMap {
+    let p = origins_path();
+    let Ok(s) = fs::read_to_string(&p) else { return HashMap::new() };
+    serde_json::from_str(&s).unwrap_or_default()
+}
+
+fn write_origins(origins: &OriginsMap) -> Result<()> {
+    fs::create_dir_all(library_dir())?;
+    let s = serde_json::to_string_pretty(origins)?;
+    fs::write(origins_path(), s)?;
+    Ok(())
+}
+
+pub fn set_origin(kind: AssetKind, name: &str, origin: Origin) -> Result<()> {
+    let mut origins = read_origins();
+    origins.insert(format!("{}:{}", kind.as_str(), name), origin);
+    write_origins(&origins)
 }
 
 pub fn kit_home() -> PathBuf {
@@ -116,6 +154,7 @@ pub fn scan_kind(kind: AssetKind) -> Vec<Asset> {
                     path: path.to_string_lossy().to_string(),
                     description,
                     tags,
+                    origin: None,
                 });
             }
             _ => {
@@ -130,6 +169,7 @@ pub fn scan_kind(kind: AssetKind) -> Vec<Asset> {
                     path: path.to_string_lossy().to_string(),
                     description,
                     tags,
+                    origin: None,
                 });
             }
         }
@@ -140,10 +180,17 @@ pub fn scan_kind(kind: AssetKind) -> Vec<Asset> {
 }
 
 pub fn scan_all() -> Vec<Asset> {
-    AssetKind::all()
+    let origins = read_origins();
+    let mut all: Vec<Asset> = AssetKind::all()
         .iter()
         .flat_map(|k| scan_kind(*k))
-        .collect()
+        .collect();
+    for a in &mut all {
+        a.origin = origins
+            .get(&format!("{}:{}", a.kind.as_str(), a.name))
+            .cloned();
+    }
+    all
 }
 
 fn asset_file_path(kind: AssetKind, name: &str) -> PathBuf {

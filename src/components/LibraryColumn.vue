@@ -93,7 +93,14 @@ function onDragStart(e: DragEvent, a: Asset) {
               @click.stop="canInstall && emit('toggle', a)"
             />
             <div class="asset-body">
-              <div class="asset-name">{{ a.name }}</div>
+              <div class="asset-name">
+                {{ a.name }}
+                <span
+                  v-if="a.origin"
+                  class="asset-origin"
+                  :title="`from ${a.origin.marketplace} · imported ${a.origin.imported_at}`"
+                >from {{ a.origin.plugin }}</span>
+              </div>
               <div v-if="a.description" class="asset-desc">{{ a.description }}</div>
             </div>
             <button

@@ -2,12 +2,15 @@
 import { ref, computed, onMounted } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./lib/api";
-import type { Asset, Bundle, InstalledAsset } from "./lib/types";
+import type { Asset, Bundle, InstalledAsset, Marketplace, Plugin } from "./lib/types";
 import { assetKey } from "./lib/types";
 import LibraryColumn from "./components/LibraryColumn.vue";
 import BundlesColumn from "./components/BundlesColumn.vue";
 import ProjectColumn from "./components/ProjectColumn.vue";
 import AssetEditor from "./components/AssetEditor.vue";
+import DiscoverView from "./components/DiscoverView.vue";
+
+type View = "manage" | "discover";
 
 const library = ref<Asset[]>([]);
 const bundles = ref<Bundle[]>([]);
@@ -18,6 +21,11 @@ const installed = ref<InstalledAsset[]>([]);
 const selectedBundle = ref<string | null>(null);
 const toast = ref<string | null>(null);
 const editing = ref<Asset | null>(null);
+const currentView = ref<View>("manage");
+const marketplace = ref<Marketplace | null>(null);
+const marketplaceLoading = ref(false);
+const marketplaceError = ref<string | null>(null);
+const importingPlugin = ref<string | null>(null);
 
 const installedKeys = computed(() => new Set(installed.value.map(assetKey)));
 
@@ -117,6 +125,41 @@ async function onImportPlugin() {
   }
 }
 
+async function loadMarketplace(force = false) {
+  if (marketplace.value && !force) return;
+  marketplaceLoading.value = true;
+  marketplaceError.value = null;
+  try {
+    marketplace.value = await api.listMarketplacePlugins();
+  } catch (e) {
+    marketplaceError.value = String(e);
+  } finally {
+    marketplaceLoading.value = false;
+  }
+}
+
+async function onSwitchView(v: View) {
+  currentView.value = v;
+  if (v === "discover") await loadMarketplace();
+}
+
+async function onImportMarketplacePlugin(plugin: Plugin) {
+  if (importingPlugin.value) return;
+  importingPlugin.value = plugin.name;
+  try {
+    const res = await api.importMarketplacePlugin(plugin);
+    await refreshLibrary();
+    flash(
+      `Imported ${res.imported.length} from ${plugin.name}` +
+        (res.skipped.length ? `, skipped ${res.skipped.length} (already in library)` : "")
+    );
+  } catch (e) {
+    flash(`Import failed: ${e}`);
+  } finally {
+    importingPlugin.value = null;
+  }
+}
+
 function onEditAsset(a: Asset) {
   editing.value = a;
 }
@@ -137,6 +180,16 @@ onMounted(refreshAll);
   <div class="app">
     <div class="topbar">
       <h1>claude-kit</h1>
+      <div class="view-tabs">
+        <button
+          :class="{ active: currentView === 'manage' }"
+          @click="onSwitchView('manage')"
+        >Manage</button>
+        <button
+          :class="{ active: currentView === 'discover' }"
+          @click="onSwitchView('discover')"
+        >Discover</button>
+      </div>
       <div class="spacer" />
       <div class="project-selector">
         <span class="project-path">{{ projectPath ?? "No project selected" }}</span>
@@ -146,7 +199,7 @@ onMounted(refreshAll);
       </div>
     </div>
 
-    <div class="columns">
+    <div v-if="currentView === 'manage'" class="columns">
       <LibraryColumn
         :library="library"
         :installed-keys="installedKeys"
@@ -173,6 +226,16 @@ onMounted(refreshAll);
         @clean="onCleanProject"
       />
     </div>
+
+    <DiscoverView
+      v-else
+      :marketplace="marketplace"
+      :loading="marketplaceLoading"
+      :error="marketplaceError"
+      :importing-plugin="importingPlugin"
+      @refresh="loadMarketplace(true)"
+      @import="onImportMarketplacePlugin"
+    />
 
     <AssetEditor
       :asset="editing"

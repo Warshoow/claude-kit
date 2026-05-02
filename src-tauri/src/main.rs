@@ -1,9 +1,11 @@
 mod bundles;
 mod library;
+mod marketplace;
 mod project;
 
 use bundles::{Bundle, BundleRef};
 use library::{ensure_layout, scan_all, Asset, AssetKind, ImportResult};
+use marketplace::{Marketplace, Plugin};
 use project::InstalledAsset;
 use std::path::PathBuf;
 
@@ -107,6 +109,21 @@ fn write_asset(kind: AssetKind, name: String, content: String) -> Result<(), Str
 }
 
 #[tauri::command]
+fn list_marketplace_plugins(url: Option<String>) -> Result<Marketplace, String> {
+    let url = url.unwrap_or_else(|| marketplace::DEFAULT_MARKETPLACE_URL.to_string());
+    marketplace::fetch_marketplace(&url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn import_marketplace_plugin(
+    plugin: Plugin,
+    marketplace_name: Option<String>,
+) -> Result<ImportResult, String> {
+    let name = marketplace_name.unwrap_or_else(|| "claude-plugins-official".to_string());
+    marketplace::import_plugin(&plugin, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -148,6 +165,8 @@ fn main() {
             import_plugin,
             read_asset,
             write_asset,
+            list_marketplace_plugins,
+            import_marketplace_plugin,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

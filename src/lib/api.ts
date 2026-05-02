@@ -7,6 +7,8 @@ import type {
   BundleRef,
   ImportResult,
   InstalledAsset,
+  Marketplace,
+  Plugin,
 } from "./types";
 
 export const api = {
@@ -34,4 +36,8 @@ export const api = {
     invoke<string>("read_asset", { kind, name }),
   writeAsset: (kind: AssetKind, name: string, content: string) =>
     invoke<void>("write_asset", { kind, name, content }),
+  listMarketplacePlugins: (url?: string) =>
+    invoke<Marketplace>("list_marketplace_plugins", { url }),
+  importMarketplacePlugin: (plugin: Plugin) =>
+    invoke<ImportResult>("import_marketplace_plugin", { plugin }),
 };

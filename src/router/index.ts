@@ -8,7 +8,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/bundles",
     name: "bundles",
-    component: () => import("@/views/BundlesView.vue"),
+    component: () => import("@/views/MyBundlesView.vue"),
+  },
+  {
+    path: "/bundles/:name",
+    name: "bundle-detail",
+    component: () => import("@/views/BundleDetailView.vue"),
+    props: true,
   },
   {
     path: "/browse",

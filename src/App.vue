@@ -24,7 +24,14 @@ const {
   editing,
 } = storeToRefs(store);
 
-const currentRoute = computed(() => (route.name as string) ?? "bundles");
+// Active top-level tab — derived from the path so nested routes like
+// /bundles/:name still highlight the "bundles" tab.
+const currentRoute = computed(() => {
+  const p = route.path;
+  if (p.startsWith("/browse")) return "browse";
+  if (p.startsWith("/project")) return "project";
+  return "bundles";
+});
 
 function onSwitchView(name: string | undefined) {
   if (!name) return;

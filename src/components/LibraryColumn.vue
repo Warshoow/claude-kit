@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Pencil, Search, Upload, X } from "lucide-vue-next";
+import { Search, Upload, X } from "lucide-vue-next";
 import type { Asset, AssetKind } from "@/lib/types";
 import { assetKey } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   toggle: [asset: Asset];
-  edit: [asset: Asset];
+  select: [asset: Asset];
   import: [];
 }>();
 
@@ -47,17 +47,11 @@ const grouped = computed(() => {
   return g;
 });
 
-function onDragStart(e: DragEvent, a: Asset) {
-  if (!e.dataTransfer) return;
-  e.dataTransfer.effectAllowed = "copy";
-  e.dataTransfer.setData(
-    "application/claude-asset",
-    JSON.stringify({ kind: a.kind, name: a.name })
-  );
-  e.dataTransfer.setData("text/plain", `${a.kind}/${a.name}`);
+function onRowClick(a: Asset) {
+  emit("select", a);
 }
 
-function onRowClick(a: Asset) {
+function onCheckboxChange(a: Asset) {
   if (!props.canInstall) return;
   emit("toggle", a);
 }
@@ -146,17 +140,25 @@ function onRowClick(a: Asset) {
                         ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
                         : ''
                     "
-                    draggable="true"
-                    @dragstart="onDragStart($event, a)"
+                    tabindex="0"
                     @click="onRowClick(a)"
+                    @keydown.enter="onRowClick(a)"
+                    @keydown.space.prevent="onRowClick(a)"
                   >
-                    <Checkbox
-                      :model-value="installedKeys.has(assetKey(a))"
-                      :disabled="!canInstall"
-                      class="mt-0.5"
-                      @update:model-value="onRowClick(a)"
-                      @click.stop
-                    />
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Checkbox
+                          :model-value="installedKeys.has(assetKey(a))"
+                          :disabled="!canInstall"
+                          class="mt-0.5"
+                          @update:model-value="onCheckboxChange(a)"
+                          @click.stop
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {{ canInstall ? "Toggle install in project" : "Pick a project to install" }}
+                      </TooltipContent>
+                    </Tooltip>
 
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-1.5">
@@ -173,20 +175,6 @@ function onRowClick(a: Asset) {
                         class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"
                       >{{ a.description }}</p>
                     </div>
-
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          class="opacity-0 transition-opacity group-hover:opacity-100"
-                          @click.stop="emit('edit', a)"
-                        >
-                          <Pencil />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Edit content</TooltipContent>
-                    </Tooltip>
                   </div>
                 </div>
               </template>

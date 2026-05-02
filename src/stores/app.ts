@@ -166,46 +166,6 @@ export const useAppStore = defineStore("app", () => {
     }
   }
 
-  // ── Plugin detail (drawer for now — page in a later phase) ──────
-  const selectedPlugin = ref<Plugin | null>(null);
-  const readme = ref<string | null>(null);
-  const readmeLoading = ref(false);
-  const readmeError = ref<string | null>(null);
-
-  async function selectPlugin(plugin: Plugin) {
-    selectedPlugin.value = plugin;
-    readme.value = null;
-    readmeError.value = null;
-    readmeLoading.value = true;
-    try {
-      readme.value = await api.fetchPluginReadme(plugin);
-    } catch (e) {
-      readmeError.value = String(e);
-    } finally {
-      readmeLoading.value = false;
-    }
-  }
-
-  function closePluginDetail() {
-    selectedPlugin.value = null;
-  }
-
-  // ── Asset editor (Dialog for now — page in a later phase) ───────
-  const editing = ref<Asset | null>(null);
-
-  function startEditing(asset: Asset) {
-    editing.value = asset;
-  }
-
-  function stopEditing() {
-    editing.value = null;
-  }
-
-  async function onEditorSaved() {
-    await refreshLibrary();
-    toast.success("Saved");
-  }
-
   return {
     // state
     library,
@@ -216,11 +176,6 @@ export const useAppStore = defineStore("app", () => {
     marketplaceLoading,
     marketplaceError,
     importingPlugin,
-    selectedPlugin,
-    readme,
-    readmeLoading,
-    readmeError,
-    editing,
     // computed
     installedKeys,
     // actions
@@ -238,10 +193,5 @@ export const useAppStore = defineStore("app", () => {
     importLocalPlugin,
     loadMarketplace,
     importMarketplacePlugin,
-    selectPlugin,
-    closePluginDetail,
-    startEditing,
-    stopEditing,
-    onEditorSaved,
   };
 });

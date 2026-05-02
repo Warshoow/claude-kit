@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useAppStore } from "@/stores/app";
 import {
@@ -8,8 +9,10 @@ import {
 } from "@/components/ui/toggle-group";
 import LibraryColumn from "@/components/LibraryColumn.vue";
 import DiscoverView from "@/components/DiscoverView.vue";
+import type { Asset, Plugin } from "@/lib/types";
 
 const store = useAppStore();
+const router = useRouter();
 const {
   library,
   installedKeys,
@@ -27,6 +30,16 @@ watch(source, async (s) => {
   if (s === "marketplace") await store.loadMarketplace();
 }, { immediate: true });
 
+function onSelectAsset(a: Asset) {
+  router.push({
+    name: "asset-detail",
+    params: { kind: a.kind, name: a.name },
+  });
+}
+
+function onSelectPlugin(p: Plugin) {
+  router.push({ name: "plugin-detail", params: { name: p.name } });
+}
 </script>
 
 <template>
@@ -54,7 +67,7 @@ watch(source, async (s) => {
         :installed-keys="installedKeys"
         :can-install="!!projectPath"
         @toggle="store.toggleAsset"
-        @edit="store.startEditing"
+        @select="onSelectAsset"
         @import="store.importLocalPlugin"
       />
       <DiscoverView
@@ -65,7 +78,7 @@ watch(source, async (s) => {
         :importing-plugin="importingPlugin"
         @refresh="store.loadMarketplace(true)"
         @import="store.importMarketplacePlugin"
-        @select="store.selectPlugin"
+        @select="onSelectPlugin"
       />
     </div>
   </div>

@@ -22,6 +22,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/BrowseView.vue"),
   },
   {
+    path: "/library/:kind/:name",
+    name: "asset-detail",
+    component: () => import("@/views/AssetDetailView.vue"),
+    props: true,
+  },
+  {
+    path: "/plugins/:name",
+    name: "plugin-detail",
+    component: () => import("@/views/PluginDetailView.vue"),
+    props: true,
+  },
+  {
     path: "/project",
     name: "project",
     component: () => import("@/views/ProjectView.vue"),

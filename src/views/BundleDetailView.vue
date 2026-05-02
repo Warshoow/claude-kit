@@ -134,6 +134,13 @@ function findAsset(ref: BundleRef): Asset | undefined {
   );
 }
 
+function openAsset(ref: BundleRef) {
+  router.push({
+    name: "asset-detail",
+    params: { kind: ref.kind, name: ref.name },
+  });
+}
+
 function kindLabel(kind: AssetKind): string {
   return kind.charAt(0).toUpperCase() + kind.slice(1, -1);
   // skills → Skill, commands → Command, agents → Agent
@@ -255,7 +262,8 @@ function kindLabel(kind: AssetKind): string {
                 <tr
                   v-for="ref in bundle.assets"
                   :key="`${ref.kind}:${ref.name}`"
-                  class="group transition-colors hover:bg-accent/40"
+                  class="group cursor-pointer transition-colors hover:bg-accent/40"
+                  @click="openAsset(ref)"
                 >
                   <td class="px-4 py-2.5 align-top">
                     <Badge variant="outline" class="text-[10px]">
@@ -283,7 +291,7 @@ function kindLabel(kind: AssetKind): string {
                       size="icon-sm"
                       class="opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
                       title="Remove from bundle"
-                      @click="removeAsset(ref)"
+                      @click.stop="removeAsset(ref)"
                     >
                       <X />
                     </Button>

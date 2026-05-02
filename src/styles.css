@@ -140,3 +140,118 @@ body,
   height: 100vh;
   overflow: hidden;
 }
+
+/* ==========================================================================
+   Markdown rendering (used by AssetDetailView preview + PluginDetailView readme)
+   ========================================================================== */
+
+.markdown {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.markdown h1:first-child,
+.markdown h2:first-child,
+.markdown h3:first-child {
+  margin-top: 0;
+}
+.markdown h1 { font-size: 1.25rem; }
+.markdown h2 { font-size: 1.05rem; }
+.markdown h3 { font-size: 0.95rem; }
+.markdown h4 { font-size: 0.875rem; color: var(--muted-foreground); }
+
+.markdown p {
+  margin: 0 0 0.75rem;
+}
+
+.markdown a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.markdown a:hover {
+  text-decoration: underline;
+}
+
+.markdown code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.markdown pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.875rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.markdown pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.4rem;
+}
+
+.markdown li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.875rem;
+  border-left: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--muted-foreground);
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.78rem;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.625rem;
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}

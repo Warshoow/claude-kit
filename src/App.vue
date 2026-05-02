@@ -7,28 +7,20 @@ import { useAppStore } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Toaster } from "@/components/ui/sonner";
-import AssetEditor from "@/components/AssetEditor.vue";
-import PluginDetail from "@/components/PluginDetail.vue";
 
 const store = useAppStore();
 const route = useRoute();
 const router = useRouter();
 
-const {
-  projectPath,
-  selectedPlugin,
-  readme,
-  readmeLoading,
-  readmeError,
-  importingPlugin,
-  editing,
-} = storeToRefs(store);
+const { projectPath } = storeToRefs(store);
 
 // Active top-level tab — derived from the path so nested routes like
 // /bundles/:name still highlight the "bundles" tab.
 const currentRoute = computed(() => {
   const p = route.path;
-  if (p.startsWith("/browse")) return "browse";
+  if (p.startsWith("/browse") || p.startsWith("/library") || p.startsWith("/plugins")) {
+    return "browse";
+  }
   if (p.startsWith("/project")) return "project";
   return "bundles";
 });
@@ -37,11 +29,6 @@ function onSwitchView(name: string | undefined) {
   if (!name) return;
   router.push({ name });
 }
-
-const importingSelectedPlugin = computed(
-  () =>
-    !!selectedPlugin.value && importingPlugin.value === selectedPlugin.value.name
-);
 
 onMounted(() => store.refreshAll());
 </script>
@@ -82,22 +69,6 @@ onMounted(() => store.refreshAll());
     <main class="flex-1 overflow-hidden">
       <RouterView />
     </main>
-
-    <PluginDetail
-      :plugin="selectedPlugin"
-      :readme="readme"
-      :readme-loading="readmeLoading"
-      :readme-error="readmeError"
-      :importing="importingSelectedPlugin"
-      @close="store.closePluginDetail"
-      @import="store.importMarketplacePlugin"
-    />
-
-    <AssetEditor
-      :asset="editing"
-      @close="store.stopEditing"
-      @saved="store.onEditorSaved"
-    />
 
     <Toaster position="bottom-right" rich-colors />
   </div>

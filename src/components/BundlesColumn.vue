@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import type { Asset, Bundle, BundleRef } from "../lib/types";
-import { assetKey } from "../lib/types";
+import { Plus, Trash2, X } from "lucide-vue-next";
+import type { Asset, Bundle, BundleRef } from "@/lib/types";
+import { assetKey } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 const props = defineProps<{
   bundles: Bundle[];
@@ -112,99 +118,153 @@ function onDropOutside(e: DragEvent) {
 </script>
 
 <template>
-  <div class="column" @dragover.prevent @drop="onDropOutside">
-    <div class="col-header">
-      Bundles
-      <span class="count">{{ bundles.length }}</span>
-      <div style="flex:1" />
-      <button @click="creating = !creating">+ New</button>
+  <div
+    class="flex h-full flex-col overflow-hidden"
+    @dragover.prevent
+    @drop="onDropOutside"
+  >
+    <!-- Header -->
+    <div class="flex items-center gap-2 border-b bg-card/40 px-4 py-2.5">
+      <span class="text-sm font-semibold">Bundles</span>
+      <span class="text-xs text-muted-foreground">{{ bundles.length }}</span>
+      <div class="flex-1" />
+      <Button variant="outline" size="sm" @click="creating = !creating">
+        <Plus />
+        New bundle
+      </Button>
     </div>
 
-    <div class="col-body">
-      <div v-if="creating" style="padding: 10px; display: flex; flex-direction: column; gap: 6px;">
-        <input v-model="newName" type="text" placeholder="Bundle name (e.g. python-backend)" @keyup.enter="submitCreate" />
-        <input v-model="newDesc" type="text" placeholder="Description (optional)" @keyup.enter="submitCreate" />
-        <div style="display:flex; gap:6px">
-          <button class="primary" @click="submitCreate">Create</button>
-          <button @click="creating = false">Cancel</button>
-        </div>
-      </div>
-
-      <div v-if="bundles.length === 0 && !creating" class="empty">
-        No bundles yet.<br />Click <b>+ New</b> to create one.<br /><br />
-        Tip: drop assets from the Library onto a bundle to add them.
-      </div>
-
-      <div
-        v-for="b in bundles"
-        :key="b.name"
-        class="bundle-item"
-        :class="{ active: b.name === selected, 'drag-target': dragOver === b.name }"
-        @click="emit('select', b.name)"
-        @dragover="onDragOverBundle($event, b.name)"
-        @dragleave="onDragLeaveBundle(b.name)"
-        @drop="onDropOnBundle($event, b)"
-      >
-        <div class="bundle-title">
-          <span class="bundle-name">{{ b.name }}</span>
-          <span class="bundle-count">{{ b.assets.length }} assets</span>
-        </div>
-        <div v-if="b.description" class="bundle-desc">{{ b.description }}</div>
-
-        <!-- Expanded editor for the selected bundle -->
-        <template v-if="b.name === selected">
-          <div class="bundle-assets">
-            <div
-              v-for="a in b.assets"
-              :key="assetKey(a)"
-              class="tag tag-active"
-              draggable="true"
-              title="Click to remove, or drag out"
-              @dragstart="onDragStartChip($event, b, a)"
-              @click.stop="toggleAssetInBundle(b, a)"
-            >
-              {{ a.kind.charAt(0) }}/{{ a.name }}
-              <span class="tag-x">×</span>
-            </div>
-            <div v-if="b.assets.length === 0" class="empty" style="padding: 6px 0; width: 100%; text-align: left">
-              Drop assets here from the Library.
-            </div>
+    <!-- Body -->
+    <ScrollArea class="flex-1 min-h-0">
+      <div class="space-y-2 p-3">
+        <!-- Inline create form -->
+        <div
+          v-if="creating"
+          class="space-y-2 rounded-lg border bg-card p-3"
+        >
+          <Input
+            v-model="newName"
+            type="text"
+            placeholder="Bundle name (e.g. python-backend)"
+            @keyup.enter="submitCreate"
+          />
+          <Input
+            v-model="newDesc"
+            type="text"
+            placeholder="Description (optional)"
+            @keyup.enter="submitCreate"
+          />
+          <div class="flex gap-2 pt-1">
+            <Button size="sm" @click="submitCreate">Create</Button>
+            <Button variant="ghost" size="sm" @click="creating = false">
+              Cancel
+            </Button>
           </div>
+        </div>
 
-          <details class="bundle-browse">
-            <summary>Add from library…</summary>
-            <div class="bundle-assets">
-              <div
-                v-for="a in library.filter(a => !isInBundle(b, a))"
+        <div
+          v-if="bundles.length === 0 && !creating"
+          class="rounded-lg border border-dashed bg-card/40 px-4 py-8 text-center text-xs text-muted-foreground"
+        >
+          No bundles yet.<br />Click <b class="text-foreground">+ New bundle</b> to create one.<br /><br />
+          Tip: drop assets from the Library onto a bundle to add them.
+        </div>
+
+        <!-- Bundle cards -->
+        <div
+          v-for="b in bundles"
+          :key="b.name"
+          class="cursor-pointer rounded-lg border bg-card p-3 transition-all hover:border-foreground/20"
+          :class="{
+            'ring-2 ring-primary/40 ring-offset-2 ring-offset-background':
+              b.name === selected,
+            'border-primary bg-primary/10':
+              dragOver === b.name,
+          }"
+          @click="emit('select', b.name)"
+          @dragover="onDragOverBundle($event, b.name)"
+          @dragleave="onDragLeaveBundle(b.name)"
+          @drop="onDropOnBundle($event, b)"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold">{{ b.name }}</span>
+            <span class="text-xs text-muted-foreground">
+              {{ b.assets.length }} asset{{ b.assets.length === 1 ? "" : "s" }}
+            </span>
+          </div>
+          <p
+            v-if="b.description"
+            class="mt-1 text-xs leading-snug text-muted-foreground"
+          >{{ b.description }}</p>
+
+          <!-- Expanded editor for the selected bundle -->
+          <template v-if="b.name === selected">
+            <Separator class="my-3" />
+
+            <div class="flex flex-wrap gap-1.5">
+              <Badge
+                v-for="a in b.assets"
                 :key="assetKey(a)"
-                class="tag"
-                style="cursor: pointer"
-                @click.stop="toggleAssetInBundle(b, { kind: a.kind, name: a.name })"
+                variant="default"
+                class="cursor-pointer gap-1 font-mono text-[11px]"
+                draggable="true"
+                title="Click to remove, or drag out of the column"
+                @dragstart="onDragStartChip($event, b, a)"
+                @click.stop="toggleAssetInBundle(b, a)"
               >
-                + {{ a.kind.charAt(0) }}/{{ a.name }}
+                {{ a.kind.charAt(0) }}/{{ a.name }}
+                <X class="size-3 opacity-70" />
+              </Badge>
+              <div
+                v-if="b.assets.length === 0"
+                class="text-xs italic text-muted-foreground"
+              >
+                Drop assets here from the Library.
               </div>
             </div>
-          </details>
 
-          <div style="display:flex; gap:6px; margin-top: 10px;">
-            <button
-              class="primary"
-              :disabled="!canApply"
-              @click.stop="emit('apply', b.name, false)"
-            >
-              Apply to project
-            </button>
-            <button
-              :disabled="!canApply"
-              @click.stop="emit('apply', b.name, true)"
-            >
-              Apply (replace)
-            </button>
-            <div style="flex:1" />
-            <button class="danger" @click.stop="emit('delete', b.name)">Delete</button>
-          </div>
-        </template>
+            <details class="mt-3 group">
+              <summary
+                class="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground"
+              >Add from library…</summary>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                <Badge
+                  v-for="a in library.filter((x) => !isInBundle(b, x))"
+                  :key="assetKey(a)"
+                  variant="outline"
+                  class="cursor-pointer font-mono text-[11px] hover:bg-accent"
+                  @click.stop="
+                    toggleAssetInBundle(b, { kind: a.kind, name: a.name })
+                  "
+                >+ {{ a.kind.charAt(0) }}/{{ a.name }}</Badge>
+              </div>
+            </details>
+
+            <div class="mt-4 flex gap-2">
+              <Button
+                size="sm"
+                :disabled="!canApply"
+                @click.stop="emit('apply', b.name, false)"
+              >Apply to project</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="!canApply"
+                @click.stop="emit('apply', b.name, true)"
+              >Apply (replace)</Button>
+              <div class="flex-1" />
+              <Button
+                variant="ghost"
+                size="sm"
+                class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                @click.stop="emit('delete', b.name)"
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          </template>
+        </div>
       </div>
-    </div>
+    </ScrollArea>
   </div>
 </template>

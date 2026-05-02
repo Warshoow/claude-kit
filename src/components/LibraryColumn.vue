@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { Asset, AssetKind } from "../lib/types";
-import { assetKey } from "../lib/types";
+import { Pencil, Search, Upload, X } from "lucide-vue-next";
+import type { Asset, AssetKind } from "@/lib/types";
+import { assetKey } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const props = defineProps<{
   library: Asset[];
@@ -44,73 +56,144 @@ function onDragStart(e: DragEvent, a: Asset) {
   );
   e.dataTransfer.setData("text/plain", `${a.kind}/${a.name}`);
 }
+
+function onRowClick(a: Asset) {
+  if (!props.canInstall) return;
+  emit("toggle", a);
+}
 </script>
 
 <template>
-  <div class="column">
-    <div class="col-header">
-      Library
-      <span class="count">{{ filtered.length }}<span v-if="filtered.length !== library.length">/{{ library.length }}</span></span>
-      <div style="flex:1" />
-      <button @click="emit('import')" title="Import assets from a plugin folder">Import…</button>
-    </div>
-    <div class="col-search">
-      <input
-        v-model="query"
-        type="text"
-        placeholder="Search name, description, tag…"
-      />
-      <button v-if="query" class="clear-btn" @click="query = ''" title="Clear">×</button>
-    </div>
-    <div class="col-body">
-      <template v-if="library.length === 0">
-        <div class="empty">
-          Empty library.<br />
-          Add files to <code>~/.claude-assets/library/</code> or import a plugin.
-        </div>
-      </template>
-      <template v-else-if="filtered.length === 0">
-        <div class="empty">No match for "{{ query }}".</div>
-      </template>
-      <template v-else>
-        <div v-for="kind in (['skills', 'commands', 'agents'] as AssetKind[])" :key="kind" class="kind-group">
-          <div v-if="grouped[kind].length > 0" class="kind-label">
-            {{ kind }} ({{ grouped[kind].length }})
-          </div>
-          <div
-            v-for="a in grouped[kind]"
-            :key="assetKey(a)"
-            class="asset-item"
-            :class="{ installed: installedKeys.has(assetKey(a)) }"
-            draggable="true"
-            @dragstart="onDragStart($event, a)"
-            @click="canInstall && emit('toggle', a)"
+  <TooltipProvider :delay-duration="200">
+    <div class="flex h-full flex-col overflow-hidden">
+      <!-- Header -->
+      <div
+        class="flex items-center gap-2 border-b bg-card/40 px-4 py-2.5"
+      >
+        <span class="text-sm font-semibold">Library</span>
+        <span class="text-xs text-muted-foreground">
+          {{ filtered.length
+          }}<span v-if="filtered.length !== library.length">/{{ library.length }}</span>
+        </span>
+        <div class="flex-1" />
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="outline" size="sm" @click="emit('import')">
+              <Upload />
+              Import
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Import assets from a plugin folder</TooltipContent>
+        </Tooltip>
+      </div>
+
+      <!-- Search -->
+      <div class="border-b px-3 py-2">
+        <div class="relative">
+          <Search
+            class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            v-model="query"
+            type="text"
+            placeholder="Search name, description, tag…"
+            class="h-8 pl-8 pr-8 text-sm"
+          />
+          <button
+            v-if="query"
+            type="button"
+            class="absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            @click="query = ''"
           >
-            <input
-              type="checkbox"
-              :checked="installedKeys.has(assetKey(a))"
-              :disabled="!canInstall"
-              @click.stop="canInstall && emit('toggle', a)"
-            />
-            <div class="asset-body">
-              <div class="asset-name">
-                {{ a.name }}
-                <span
-                  v-if="a.origin"
-                  class="asset-origin"
-                  :title="`from ${a.origin.marketplace} · imported ${a.origin.imported_at}`"
-                >from {{ a.origin.plugin }}</span>
-              </div>
-              <div v-if="a.description" class="asset-desc">{{ a.description }}</div>
-            </div>
-            <button
-              class="icon-btn"
-              title="Edit content"
-              @click.stop="emit('edit', a)"
-            >✎</button>
-          </div>
+            <X class="size-3" />
+          </button>
         </div>
-      </template>
+      </div>
+
+      <!-- Body -->
+      <ScrollArea class="flex-1 min-h-0">
+        <template v-if="library.length === 0">
+          <div class="px-6 py-10 text-center text-xs text-muted-foreground">
+            Empty library.<br />
+            Add files to <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">~/.claude-assets/library/</code>
+            or import a plugin.
+          </div>
+        </template>
+        <template v-else-if="filtered.length === 0">
+          <div class="px-6 py-10 text-center text-xs text-muted-foreground">
+            No match for "{{ query }}".
+          </div>
+        </template>
+        <template v-else>
+          <div class="space-y-3 p-2">
+            <div
+              v-for="kind in (['skills', 'commands', 'agents'] as AssetKind[])"
+              :key="kind"
+            >
+              <template v-if="grouped[kind].length > 0">
+                <div
+                  class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                >
+                  {{ kind }} <span class="font-normal opacity-70">{{ grouped[kind].length }}</span>
+                </div>
+                <div class="space-y-0.5">
+                  <div
+                    v-for="a in grouped[kind]"
+                    :key="assetKey(a)"
+                    class="group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
+                    :class="
+                      installedKeys.has(assetKey(a))
+                        ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
+                        : ''
+                    "
+                    draggable="true"
+                    @dragstart="onDragStart($event, a)"
+                    @click="onRowClick(a)"
+                  >
+                    <Checkbox
+                      :model-value="installedKeys.has(assetKey(a))"
+                      :disabled="!canInstall"
+                      class="mt-0.5"
+                      @update:model-value="onRowClick(a)"
+                      @click.stop
+                    />
+
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-sm font-medium leading-none">{{ a.name }}</span>
+                        <Badge
+                          v-if="a.origin"
+                          variant="secondary"
+                          class="h-4 px-1.5 text-[9px] font-medium uppercase tracking-wider"
+                          :title="`from ${a.origin.marketplace} · imported ${a.origin.imported_at}`"
+                        >from {{ a.origin.plugin }}</Badge>
+                      </div>
+                      <p
+                        v-if="a.description"
+                        class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"
+                      >{{ a.description }}</p>
+                    </div>
+
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          class="opacity-0 transition-opacity group-hover:opacity-100"
+                          @click.stop="emit('edit', a)"
+                        >
+                          <Pencil />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Edit content</TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </ScrollArea>
     </div>
-  </div>
+  </TooltipProvider>
 </template>

@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api } from "./lib/api";
-import type { Asset, Bundle, InstalledAsset, Marketplace, Plugin } from "./lib/types";
-import { assetKey } from "./lib/types";
-import LibraryColumn from "./components/LibraryColumn.vue";
-import BundlesColumn from "./components/BundlesColumn.vue";
-import ProjectColumn from "./components/ProjectColumn.vue";
-import AssetEditor from "./components/AssetEditor.vue";
-import DiscoverView from "./components/DiscoverView.vue";
-import PluginDetail from "./components/PluginDetail.vue";
+import { toast } from "vue-sonner";
+import { Folder } from "lucide-vue-next";
+import { api } from "@/lib/api";
+import type { Asset, Bundle, InstalledAsset, Marketplace, Plugin } from "@/lib/types";
+import { assetKey } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Toaster } from "@/components/ui/sonner";
+import LibraryColumn from "@/components/LibraryColumn.vue";
+import BundlesColumn from "@/components/BundlesColumn.vue";
+import ProjectColumn from "@/components/ProjectColumn.vue";
+import AssetEditor from "@/components/AssetEditor.vue";
+import DiscoverView from "@/components/DiscoverView.vue";
+import PluginDetail from "@/components/PluginDetail.vue";
 
 type View = "manage" | "discover";
 
@@ -20,7 +25,6 @@ const projectPath = ref<string | null>(
 );
 const installed = ref<InstalledAsset[]>([]);
 const selectedBundle = ref<string | null>(null);
-const toast = ref<string | null>(null);
 const editing = ref<Asset | null>(null);
 const currentView = ref<View>("manage");
 const marketplace = ref<Marketplace | null>(null);
@@ -63,24 +67,22 @@ async function pickProject() {
   }
 }
 
-function flash(msg: string) {
-  toast.value = msg;
-  setTimeout(() => (toast.value = null), 2500);
-}
-
 async function onApplyBundle(name: string, replace: boolean) {
   if (!projectPath.value) {
-    flash("Pick a project first");
+    toast.warning("Pick a project first");
     return;
   }
   const res = await api.applyBundle(projectPath.value, name, replace);
   await refreshInstalled();
-  flash(`Applied ${res.ok.length} asset(s)${res.errors.length ? `, ${res.errors.length} errors` : ""}`);
+  toast.success(
+    `Applied ${res.ok.length} asset${res.ok.length === 1 ? "" : "s"}`,
+    res.errors.length ? { description: `${res.errors.length} errors` } : undefined
+  );
 }
 
 async function onToggleAsset(a: Asset) {
   if (!projectPath.value) {
-    flash("Pick a project first");
+    toast.warning("Pick a project first");
     return;
   }
   const key = assetKey(a);
@@ -113,7 +115,7 @@ async function onCleanProject() {
   if (!projectPath.value) return;
   const n = await api.cleanProject(projectPath.value);
   await refreshInstalled();
-  flash(`Removed ${n} symlink(s)`);
+  toast.success(`Removed ${n} symlink${n === 1 ? "" : "s"}`);
 }
 
 async function onImportPlugin() {
@@ -122,11 +124,12 @@ async function onImportPlugin() {
   try {
     const res = await api.importPlugin(selected);
     await refreshLibrary();
-    flash(
-      `Imported ${res.imported.length}${res.skipped.length ? `, skipped ${res.skipped.length} (already exist)` : ""}`
+    toast.success(
+      `Imported ${res.imported.length}`,
+      res.skipped.length ? { description: `Skipped ${res.skipped.length} (already exist)` } : undefined
     );
   } catch (e) {
-    flash(`Import failed: ${e}`);
+    toast.error("Import failed", { description: String(e) });
   }
 }
 
@@ -143,7 +146,8 @@ async function loadMarketplace(force = false) {
   }
 }
 
-async function onSwitchView(v: View) {
+async function onSwitchView(v: View | undefined) {
+  if (!v) return;
   currentView.value = v;
   if (v === "discover") await loadMarketplace();
 }
@@ -172,12 +176,14 @@ async function onImportMarketplacePlugin(plugin: Plugin) {
   try {
     const res = await api.importMarketplacePlugin(plugin);
     await refreshLibrary();
-    flash(
-      `Imported ${res.imported.length} from ${plugin.name}` +
-        (res.skipped.length ? `, skipped ${res.skipped.length} (already in library)` : "")
+    toast.success(
+      `Imported ${res.imported.length} from ${plugin.name}`,
+      res.skipped.length
+        ? { description: `Skipped ${res.skipped.length} (already in library)` }
+        : undefined
     );
   } catch (e) {
-    flash(`Import failed: ${e}`);
+    toast.error("Import failed", { description: String(e) });
   } finally {
     importingPlugin.value = null;
   }
@@ -193,73 +199,84 @@ function onEditorClose() {
 
 async function onEditorSaved() {
   await refreshLibrary();
-  flash("Saved");
+  toast.success("Saved");
 }
 
 onMounted(refreshAll);
 </script>
 
 <template>
-  <div class="app">
-    <div class="topbar">
-      <h1>claude-kit</h1>
-      <div class="view-tabs">
-        <button
-          :class="{ active: currentView === 'manage' }"
-          @click="onSwitchView('manage')"
-        >Manage</button>
-        <button
-          :class="{ active: currentView === 'discover' }"
-          @click="onSwitchView('discover')"
-        >Discover</button>
-      </div>
-      <div class="spacer" />
-      <div class="project-selector">
-        <span class="project-path">{{ projectPath ?? "No project selected" }}</span>
-        <button @click="pickProject">
-          {{ projectPath ? "Change…" : "Pick project…" }}
-        </button>
-      </div>
-    </div>
+  <div class="flex h-screen flex-col">
+    <header
+      class="flex items-center gap-4 border-b bg-card/50 px-4 py-2.5 backdrop-blur"
+    >
+      <h1 class="text-sm font-semibold tracking-tight">claude-kit</h1>
 
-    <div v-if="currentView === 'manage'" class="columns">
-      <LibraryColumn
-        :library="library"
-        :installed-keys="installedKeys"
-        :can-install="!!projectPath"
-        @toggle="onToggleAsset"
-        @edit="onEditAsset"
-        @import="onImportPlugin"
-      />
-      <BundlesColumn
-        :bundles="bundles"
-        :library="library"
-        :selected="selectedBundle"
-        :can-apply="!!projectPath"
-        @select="(n) => (selectedBundle = n)"
-        @create="onCreateBundle"
-        @delete="onDeleteBundle"
-        @update="onUpdateBundle"
-        @apply="onApplyBundle"
-      />
-      <ProjectColumn
-        :project-path="projectPath"
-        :installed="installed"
-        :bundles="bundles"
-        @clean="onCleanProject"
-      />
-    </div>
+      <ToggleGroup
+        type="single"
+        :model-value="currentView"
+        @update:model-value="onSwitchView($event as View | undefined)"
+        variant="outline"
+        size="sm"
+      >
+        <ToggleGroupItem value="manage">Manage</ToggleGroupItem>
+        <ToggleGroupItem value="discover">Discover</ToggleGroupItem>
+      </ToggleGroup>
 
-    <DiscoverView
-      v-else
-      :marketplace="marketplace"
-      :loading="marketplaceLoading"
-      :error="marketplaceError"
-      :importing-plugin="importingPlugin"
-      @refresh="loadMarketplace(true)"
-      @import="onImportMarketplacePlugin"
-      @select="onSelectPlugin"
-    />
+      <div class="flex-1" />
+
+      <span
+        v-if="projectPath"
+        class="max-w-[420px] truncate font-mono text-xs text-muted-foreground"
+        :title="projectPath"
+      >{{ projectPath }}</span>
+      <span v-else class="text-xs text-muted-foreground italic">No project selected</span>
+      <Button variant="outline" size="sm" @click="pickProject">
+        <Folder />
+        {{ projectPath ? "Change" : "Pick project" }}
+      </Button>
+    </header>
+
+    <main class="flex-1 overflow-hidden">
+      <div v-if="currentView === 'manage'" class="grid h-full grid-cols-3 divide-x">
+        <LibraryColumn
+          :library="library"
+          :installed-keys="installedKeys"
+          :can-install="!!projectPath"
+          @toggle="onToggleAsset"
+          @edit="onEditAsset"
+          @import="onImportPlugin"
+        />
+        <BundlesColumn
+          :bundles="bundles"
+          :library="library"
+          :selected="selectedBundle"
+          :can-apply="!!projectPath"
+          @select="(n) => (selectedBundle = n)"
+          @create="onCreateBundle"
+          @delete="onDeleteBundle"
+          @update="onUpdateBundle"
+          @apply="onApplyBundle"
+        />
+        <ProjectColumn
+          :project-path="projectPath"
+          :installed="installed"
+          :bundles="bundles"
+          @clean="onCleanProject"
+        />
+      </div>
+
+      <DiscoverView
+        v-else
+        :marketplace="marketplace"
+        :loading="marketplaceLoading"
+        :error="marketplaceError"
+        :importing-plugin="importingPlugin"
+        @refresh="loadMarketplace(true)"
+        @import="onImportMarketplacePlugin"
+        @select="onSelectPlugin"
+      />
+    </main>
 
     <PluginDetail
       :plugin="selectedPlugin"
@@ -277,6 +294,6 @@ onMounted(refreshAll);
       @saved="onEditorSaved"
     />
 
-    <div v-if="toast" class="toast">{{ toast }}</div>
+    <Toaster position="bottom-right" rich-colors />
   </div>
 </template>

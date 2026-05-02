@@ -1,3 +1,6 @@
 node_modules
 src-tauri/target
 src-tauri/gen
+# Emitted by some Vue tooling alongside .vue files — regenerated on demand
+src/**/*.vue.js
+dist

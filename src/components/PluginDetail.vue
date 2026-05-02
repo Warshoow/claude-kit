@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import { computed } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import type { Plugin, PluginSource } from "../lib/types";
+import { Download, ExternalLink, Loader2 } from "lucide-vue-next";
+import type { Plugin, PluginSource } from "@/lib/types";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const props = defineProps<{
   plugin: Plugin | null;
@@ -19,9 +31,17 @@ const emit = defineEmits<{
 
 const open = computed(() => props.plugin !== null);
 
+function onOpenChange(value: boolean) {
+  if (!value) emit("close");
+}
+
 const renderedReadme = computed<string>(() => {
   if (!props.readme) return "";
-  const out = marked.parse(props.readme, { gfm: true, breaks: false, async: false });
+  const out = marked.parse(props.readme, {
+    gfm: true,
+    breaks: false,
+    async: false,
+  });
   return DOMPurify.sanitize(typeof out === "string" ? out : "");
 });
 
@@ -67,288 +87,153 @@ function sourceLines(src: PluginSource): SourceLine[] {
   }
   return [];
 }
-
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape" && open.value) emit("close");
-}
-
-onMounted(() => window.addEventListener("keydown", onKeydown));
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
-
-// Lock body scroll when open
-watch(open, (isOpen) => {
-  document.body.style.overflow = isOpen ? "hidden" : "";
-});
 </script>
 
 <template>
-  <Transition name="drawer">
-    <div v-if="plugin" class="drawer-backdrop" @click="emit('close')">
-      <aside class="drawer" @click.stop>
-        <header class="drawer-header">
-          <div class="drawer-title-row">
-            <h2 class="drawer-title">{{ plugin.name }}</h2>
-            <span v-if="plugin.category" class="drawer-cat">{{ plugin.category }}</span>
-          </div>
-          <button class="ghost drawer-close" @click="emit('close')" title="Close (Esc)">×</button>
-        </header>
-
-        <div class="drawer-meta-row">
-          <div class="drawer-meta-info">
-            <span v-if="plugin.author" class="drawer-author">{{ plugin.author.name }}</span>
-            <a
-              v-if="plugin.homepage"
-              :href="plugin.homepage"
-              target="_blank"
-              rel="noopener"
-              class="drawer-homepage"
-            >Homepage ↗</a>
-          </div>
-          <button
-            class="primary"
-            :disabled="importing"
-            @click="emit('import', plugin)"
-          >
-            {{ importing ? "Importing…" : "Import to library" }}
-          </button>
+  <Sheet :open="open" @update:open="onOpenChange">
+    <SheetContent
+      side="right"
+      class="flex w-full flex-col gap-0 p-0 sm:max-w-xl"
+    >
+      <SheetHeader class="border-b px-6 pt-6 pb-4">
+        <div class="flex items-center gap-2 pr-8">
+          <SheetTitle class="text-base font-semibold">
+            {{ plugin?.name }}
+          </SheetTitle>
+          <Badge
+            v-if="plugin?.category"
+            variant="secondary"
+            class="text-[10px] uppercase tracking-wider"
+          >{{ plugin.category }}</Badge>
         </div>
+        <SheetDescription v-if="plugin?.author" class="text-xs">
+          by {{ plugin.author.name }}
+        </SheetDescription>
+      </SheetHeader>
 
-        <div class="drawer-body">
-          <section class="drawer-section">
-            <h3 class="drawer-section-title">Description</h3>
-            <p class="drawer-description">{{ plugin.description }}</p>
+      <!-- Action bar -->
+      <div class="flex items-center gap-2 border-b px-6 py-3">
+        <Button
+          size="sm"
+          :disabled="importing"
+          @click="plugin && emit('import', plugin)"
+        >
+          <Download v-if="!importing" />
+          <Loader2 v-else class="animate-spin" />
+          {{ importing ? "Importing…" : "Import to library" }}
+        </Button>
+        <a
+          v-if="plugin?.homepage"
+          :href="plugin.homepage"
+          target="_blank"
+          rel="noopener"
+          class="inline-flex items-center gap-1.5 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Homepage
+          <ExternalLink class="size-3" />
+        </a>
+      </div>
+
+      <!-- Body -->
+      <ScrollArea class="flex-1 min-h-0">
+        <div class="space-y-6 px-6 py-5">
+          <!-- Description -->
+          <section v-if="plugin">
+            <h3
+              class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >Description</h3>
+            <p class="text-sm leading-relaxed">{{ plugin.description }}</p>
           </section>
 
-          <section class="drawer-section">
-            <h3 class="drawer-section-title">Source</h3>
-            <dl class="drawer-source">
-              <template v-for="line in sourceLines(plugin.source)" :key="line.label">
-                <dt>{{ line.label }}</dt>
-                <dd :class="{ mono: line.mono }">{{ line.value }}</dd>
+          <Separator />
+
+          <!-- Source -->
+          <section v-if="plugin">
+            <h3
+              class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >Source</h3>
+            <dl
+              class="grid gap-x-4 gap-y-1.5 text-xs"
+              style="grid-template-columns: 80px 1fr"
+            >
+              <template
+                v-for="line in sourceLines(plugin.source)"
+                :key="line.label"
+              >
+                <dt
+                  class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground self-center"
+                >{{ line.label }}</dt>
+                <dd
+                  class="m-0 break-all"
+                  :class="line.mono ? 'font-mono text-[11.5px]' : 'text-muted-foreground'"
+                >{{ line.value }}</dd>
               </template>
             </dl>
           </section>
 
-          <section class="drawer-section">
-            <h3 class="drawer-section-title">Readme</h3>
-            <div v-if="readmeLoading" class="drawer-readme-status">Loading readme…</div>
-            <div v-else-if="readmeError" class="drawer-readme-status error">
+          <Separator />
+
+          <!-- Readme -->
+          <section>
+            <h3
+              class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+            >Readme</h3>
+            <div
+              v-if="readmeLoading"
+              class="flex items-center gap-2 rounded-md border bg-card/40 p-3 text-xs text-muted-foreground"
+            >
+              <Loader2 class="size-3.5 animate-spin" />
+              Loading readme…
+            </div>
+            <div
+              v-else-if="readmeError"
+              class="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+            >
               Couldn't load readme: {{ readmeError }}
             </div>
-            <div v-else-if="!readme" class="drawer-readme-status muted">
+            <div
+              v-else-if="!readme"
+              class="rounded-md border border-dashed bg-card/40 p-3 text-xs italic text-muted-foreground"
+            >
               No readme found in this plugin's source.
             </div>
-            <div v-else class="drawer-readme markdown" v-html="renderedReadme" />
+            <div
+              v-else
+              class="markdown text-sm"
+              v-html="renderedReadme"
+            />
           </section>
         </div>
-      </aside>
-    </div>
-  </Transition>
+      </ScrollArea>
+    </SheetContent>
+  </Sheet>
 </template>
 
 <style scoped>
-.drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(2px);
-  display: flex;
-  justify-content: flex-end;
-  z-index: 60;
-}
-
-.drawer {
-  width: min(560px, 92vw);
-  height: 100%;
-  background: var(--bg);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-
-.drawer-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 18px 20px 14px;
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border);
-}
-
-.drawer-title-row {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.drawer-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  word-break: break-word;
-}
-
-.drawer-cat {
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-.drawer-close {
-  font-size: 22px;
-  line-height: 1;
-  padding: 2px 10px;
-  margin-top: -2px;
-}
-
-.drawer-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 20px;
-  background: var(--bg-elev);
-  border-bottom: 1px solid var(--border);
-}
-
-.drawer-meta-info {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: var(--text-dim);
-  font-size: 12px;
-}
-
-.drawer-author {
-  color: var(--text-dim);
-}
-
-.drawer-homepage {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.drawer-homepage:hover {
-  text-decoration: underline;
-}
-
-.drawer-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 20px 24px;
-}
-
-.drawer-section {
-  margin-bottom: 22px;
-}
-
-.drawer-section:last-child {
-  margin-bottom: 0;
-}
-
-.drawer-section-title {
-  margin: 0 0 8px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--text-faint);
-  font-weight: 600;
-}
-
-.drawer-description {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.drawer-source {
-  display: grid;
-  grid-template-columns: 80px 1fr;
-  gap: 6px 14px;
-  margin: 0;
-  font-size: 12px;
-}
-
-.drawer-source dt {
-  color: var(--text-faint);
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.5px;
-  align-self: center;
-}
-
-.drawer-source dd {
-  margin: 0;
-  color: var(--text-dim);
-  word-break: break-all;
-}
-
-.drawer-source dd.mono {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11.5px;
-  color: var(--text);
-}
-
-.drawer-readme-status {
-  padding: 12px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-dim);
-  font-size: 12px;
-}
-
-.drawer-readme-status.error {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-}
-
-.drawer-readme-status.muted {
-  color: var(--text-faint);
-  font-style: italic;
-}
-
-.drawer-readme {
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-/* Markdown content styling — generic, applies to anything inside .markdown */
+/* Markdown content styling */
 .markdown :deep(h1),
 .markdown :deep(h2),
 .markdown :deep(h3),
 .markdown :deep(h4) {
-  margin: 18px 0 8px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
 }
-.markdown :deep(h1) { font-size: 18px; }
-.markdown :deep(h2) { font-size: 15px; }
-.markdown :deep(h3) { font-size: 14px; }
-.markdown :deep(h4) { font-size: 13px; color: var(--text-dim); }
+.markdown :deep(h1) { font-size: 1.125rem; }
+.markdown :deep(h2) { font-size: 1rem; }
+.markdown :deep(h3) { font-size: 0.9rem; }
+.markdown :deep(h4) {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
 
 .markdown :deep(p) {
-  margin: 0 0 12px;
-  color: var(--text);
+  margin: 0 0 0.75rem;
 }
 
 .markdown :deep(a) {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: none;
 }
 .markdown :deep(a:hover) {
@@ -357,93 +242,75 @@ watch(open, (isOpen) => {
 
 .markdown :deep(code) {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11.5px;
-  background: var(--bg-elev);
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: var(--muted);
   border: 1px solid var(--border);
 }
 
 .markdown :deep(pre) {
-  background: var(--bg-elev);
+  background: var(--muted);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px 12px;
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.875rem;
   overflow-x: auto;
-  margin: 12px 0;
+  margin: 0.75rem 0;
 }
 
 .markdown :deep(pre code) {
-  background: none;
-  border: none;
+  background: transparent;
+  border: 0;
   padding: 0;
-  font-size: 11.5px;
+  font-size: 0.78rem;
   line-height: 1.5;
 }
 
 .markdown :deep(ul),
 .markdown :deep(ol) {
-  margin: 0 0 12px;
-  padding-left: 22px;
+  margin: 0 0 0.75rem;
+  padding-left: 1.4rem;
 }
 
 .markdown :deep(li) {
-  margin-bottom: 4px;
+  margin-bottom: 0.25rem;
 }
 
 .markdown :deep(blockquote) {
-  margin: 12px 0;
-  padding: 8px 14px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--text-dim);
-  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.875rem;
+  border-left: 3px solid var(--primary);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-radius: 0 0.5rem 0.5rem 0;
 }
 
 .markdown :deep(hr) {
-  border: none;
+  border: 0;
   border-top: 1px solid var(--border);
-  margin: 18px 0;
+  margin: 1.25rem 0;
 }
 
 .markdown :deep(table) {
   border-collapse: collapse;
-  margin: 12px 0;
-  font-size: 12px;
+  margin: 0.75rem 0;
+  font-size: 0.78rem;
 }
 
 .markdown :deep(th),
 .markdown :deep(td) {
   border: 1px solid var(--border);
-  padding: 6px 10px;
+  padding: 0.4rem 0.625rem;
   text-align: left;
 }
 
 .markdown :deep(th) {
-  background: var(--bg-elev);
+  background: var(--muted);
   font-weight: 600;
 }
 
 .markdown :deep(img) {
   max-width: 100%;
-  border-radius: var(--radius);
-}
-
-/* Drawer slide-in / fade-out */
-.drawer-enter-active,
-.drawer-leave-active {
-  transition: background 200ms ease;
-}
-.drawer-enter-active .drawer,
-.drawer-leave-active .drawer {
-  transition: transform 240ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-.drawer-enter-from,
-.drawer-leave-to {
-  background: transparent;
-}
-.drawer-enter-from .drawer,
-.drawer-leave-to .drawer {
-  transform: translateX(100%);
+  border-radius: 0.5rem;
 }
 </style>

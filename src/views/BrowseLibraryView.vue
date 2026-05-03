@@ -1,16 +1,26 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { Search, Upload, X } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
-import type { Asset, AssetKind } from "@/lib/types";
+import type { Asset } from "@/lib/types";
 import { assetKey } from "@/lib/types";
+import {
+  groupAssets,
+  loadGroupByPreference,
+  saveGroupByPreference,
+  type AssetGroupBy,
+} from "@/lib/grouping";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +34,8 @@ const { library, installedKeys, projectPath } = storeToRefs(store);
 
 const canInstall = computed(() => !!projectPath.value);
 const query = ref("");
+const groupBy = ref<AssetGroupBy>(loadGroupByPreference());
+watch(groupBy, saveGroupByPreference);
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -37,11 +49,7 @@ const filtered = computed(() => {
   });
 });
 
-const grouped = computed(() => {
-  const g: Record<AssetKind, Asset[]> = { skills: [], commands: [], agents: [] };
-  for (const a of filtered.value) g[a.kind].push(a);
-  return g;
-});
+const groups = computed(() => groupAssets(filtered.value, groupBy.value));
 
 function openAsset(a: Asset) {
   router.push({
@@ -87,6 +95,18 @@ function onCheckboxChange(a: Asset) {
           </button>
         </div>
 
+        <ToggleGroup
+          type="single"
+          :model-value="groupBy"
+          @update:model-value="(v) => v && (groupBy = v as AssetGroupBy)"
+          variant="outline"
+          size="sm"
+          class="ml-1"
+        >
+          <ToggleGroupItem value="kind" title="Group by kind">Kind</ToggleGroupItem>
+          <ToggleGroupItem value="plugin" title="Group by plugin">Plugin</ToggleGroupItem>
+        </ToggleGroup>
+
         <div class="flex-1" />
 
         <Tooltip>
@@ -117,69 +137,69 @@ function onCheckboxChange(a: Asset) {
         </template>
         <template v-else>
           <div class="space-y-3 p-3">
-            <div
-              v-for="kind in (['skills', 'commands', 'agents'] as AssetKind[])"
-              :key="kind"
-            >
-              <template v-if="grouped[kind].length > 0">
+            <div v-for="g in groups" :key="g.key">
+              <div
+                class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+              >
+                {{ g.label }}
+                <span class="font-normal opacity-70">{{ g.items.length }}</span>
+              </div>
+              <div class="space-y-0.5">
                 <div
-                  class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                  v-for="a in g.items"
+                  :key="assetKey(a)"
+                  class="group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
+                  :class="
+                    installedKeys.has(assetKey(a))
+                      ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
+                      : ''
+                  "
+                  tabindex="0"
+                  @click="openAsset(a)"
+                  @keydown.enter="openAsset(a)"
+                  @keydown.space.prevent="openAsset(a)"
                 >
-                  {{ kind }}
-                  <span class="font-normal opacity-70">{{ grouped[kind].length }}</span>
-                </div>
-                <div class="space-y-0.5">
-                  <div
-                    v-for="a in grouped[kind]"
-                    :key="assetKey(a)"
-                    class="group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
-                    :class="
-                      installedKeys.has(assetKey(a))
-                        ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                        : ''
-                    "
-                    tabindex="0"
-                    @click="openAsset(a)"
-                    @keydown.enter="openAsset(a)"
-                    @keydown.space.prevent="openAsset(a)"
-                  >
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <Checkbox
-                          :model-value="installedKeys.has(assetKey(a))"
-                          :disabled="!canInstall"
-                          class="mt-0.5"
-                          @update:model-value="onCheckboxChange(a)"
-                          @click.stop
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {{
-                          canInstall
-                            ? "Toggle install in project"
-                            : "Pick a project to install"
-                        }}
-                      </TooltipContent>
-                    </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Checkbox
+                        :model-value="installedKeys.has(assetKey(a))"
+                        :disabled="!canInstall"
+                        class="mt-0.5"
+                        @update:model-value="onCheckboxChange(a)"
+                        @click.stop
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {{
+                        canInstall
+                          ? "Toggle install in project"
+                          : "Pick a project to install"
+                      }}
+                    </TooltipContent>
+                  </Tooltip>
 
-                    <div class="min-w-0 flex-1">
-                      <div class="flex items-center gap-1.5">
-                        <span class="text-sm font-medium leading-none">{{ a.name }}</span>
-                        <Badge
-                          v-if="a.origin"
-                          variant="secondary"
-                          class="h-4 px-1.5 text-[9px] font-medium uppercase tracking-wider"
-                          :title="`from ${a.origin.marketplace} · imported ${a.origin.imported_at}`"
-                        >from {{ a.origin.plugin }}</Badge>
-                      </div>
-                      <p
-                        v-if="a.description"
-                        class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"
-                      >{{ a.description }}</p>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <Badge
+                        v-if="groupBy === 'plugin'"
+                        variant="outline"
+                        class="h-4 px-1.5 text-[9px] uppercase"
+                      >{{ a.kind }}</Badge>
+                      <span class="text-sm font-medium leading-none">{{ a.name }}</span>
+                      <Badge
+                        v-if="a.origin && groupBy !== 'plugin'"
+                        variant="secondary"
+                        class="h-4 px-1.5 text-[9px] font-medium uppercase tracking-wider"
+                        :title="`from ${a.origin.marketplace} · imported ${a.origin.imported_at}`"
+                      >from {{ a.origin.plugin }}</Badge>
                     </div>
+                    <p
+                      v-if="a.description"
+                      class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"
+                    >{{ a.description }}</p>
                   </div>
                 </div>
-              </template>
+              </div>
             </div>
           </div>
         </template>

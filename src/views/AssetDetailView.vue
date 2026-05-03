@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { onBeforeRouteLeave, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { marked } from "marked";
@@ -12,6 +12,11 @@ import {
   Save,
 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
+import { EditorView, keymap } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { markdown } from "@codemirror/lang-markdown";
+import { oneDark } from "@codemirror/theme-one-dark";
 import { useAppStore } from "@/stores/app";
 import { api } from "@/lib/api";
 import type { AssetKind } from "@/lib/types";
@@ -104,12 +109,69 @@ async function save() {
   }
 }
 
-function onTextareaKey(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-    e.preventDefault();
-    save();
-  }
+// ── CodeMirror editor lifecycle ───────────────────────────────────
+const editorContainer = ref<HTMLElement | null>(null);
+let editorView: EditorView | null = null;
+
+function initEditor() {
+  if (!editorContainer.value || editorView) return;
+  editorView = new EditorView({
+    state: EditorState.create({
+      doc: content.value,
+      extensions: [
+        history(),
+        keymap.of([
+          {
+            key: "Mod-s",
+            preventDefault: true,
+            run: () => {
+              save();
+              return true;
+            },
+          },
+          indentWithTab,
+          ...defaultKeymap,
+          ...historyKeymap,
+        ]),
+        markdown(),
+        oneDark,
+        EditorView.lineWrapping,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            content.value = update.state.doc.toString();
+          }
+        }),
+      ],
+    }),
+    parent: editorContainer.value,
+  });
 }
+
+function destroyEditor() {
+  editorView?.destroy();
+  editorView = null;
+}
+
+watch(viewMode, async (mode) => {
+  if (mode === "edit") {
+    await nextTick();
+    initEditor();
+  } else {
+    destroyEditor();
+  }
+});
+
+// Keep the editor in sync if content is replaced externally
+// (eg. after re-loading on route change).
+watch(content, (val) => {
+  if (!editorView) return;
+  const current = editorView.state.doc.toString();
+  if (val !== current) {
+    editorView.dispatch({
+      changes: { from: 0, to: current.length, insert: val },
+    });
+  }
+});
 
 onBeforeRouteLeave(() => {
   if (dirty.value && !confirm("Discard unsaved changes?")) {
@@ -117,7 +179,16 @@ onBeforeRouteLeave(() => {
   }
 });
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  if (viewMode.value === "edit") {
+    await nextTick();
+    initEditor();
+  }
+});
+
+onBeforeUnmount(() => destroyEditor());
+
 watch(
   () => [props.kind, props.name],
   () => {
@@ -134,6 +205,29 @@ function kindLabel(k: string): string {
   return k;
 }
 </script>
+
+<style scoped>
+/* CodeMirror — fill the host and align its frame with the page chrome */
+.cm-host :deep(.cm-editor) {
+  height: 100%;
+  font-size: 13px;
+}
+.cm-host :deep(.cm-scroller) {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  line-height: 1.55;
+  padding: 8px 4px;
+}
+.cm-host :deep(.cm-content) {
+  padding: 12px 12px 32px;
+}
+.cm-host :deep(.cm-gutters) {
+  background: transparent;
+  border-right: 1px solid var(--border);
+}
+.cm-host :deep(.cm-focused) {
+  outline: none;
+}
+</style>
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
@@ -216,12 +310,10 @@ function kindLabel(k: string): string {
         <div class="markdown px-6 py-5" v-html="renderedMarkdown" />
       </ScrollArea>
 
-      <textarea
+      <div
         v-else
-        v-model="content"
-        class="size-full resize-none border-0 bg-background p-6 font-mono text-[13px] leading-relaxed outline-none"
-        spellcheck="false"
-        @keydown="onTextareaKey"
+        ref="editorContainer"
+        class="cm-host h-full overflow-hidden"
       />
     </div>
 

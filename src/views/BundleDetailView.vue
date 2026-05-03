@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import {
@@ -14,12 +14,22 @@ import {
 import { useAppStore } from "@/stores/app";
 import { assetKey } from "@/lib/types";
 import type { Asset, AssetKind, BundleRef } from "@/lib/types";
+import {
+  groupAssets,
+  loadGroupByPreference,
+  saveGroupByPreference,
+  type AssetGroupBy,
+} from "@/lib/grouping";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@/components/ui/toggle-group";
 import {
   Dialog,
   DialogContent,
@@ -76,11 +86,12 @@ const candidateAssets = computed<Asset[]>(() => {
     });
 });
 
-const candidatesByKind = computed(() => {
-  const g: Record<AssetKind, Asset[]> = { skills: [], commands: [], agents: [] };
-  for (const a of candidateAssets.value) g[a.kind].push(a);
-  return g;
-});
+const addGroupBy = ref<AssetGroupBy>(loadGroupByPreference());
+watch(addGroupBy, saveGroupByPreference);
+
+const candidateGroups = computed(() =>
+  groupAssets(candidateAssets.value, addGroupBy.value)
+);
 
 function openAdd() {
   addQuery.value = "";
@@ -314,8 +325,8 @@ function kindLabel(kind: AssetKind): string {
           </DialogDescription>
         </DialogHeader>
 
-        <div class="border-b px-6 py-3">
-          <div class="relative">
+        <div class="flex items-center gap-2 border-b px-6 py-3">
+          <div class="relative flex-1">
             <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               v-model="addQuery"
@@ -323,6 +334,16 @@ function kindLabel(kind: AssetKind): string {
               class="h-9 pl-8"
             />
           </div>
+          <ToggleGroup
+            type="single"
+            :model-value="addGroupBy"
+            @update:model-value="(v) => v && (addGroupBy = v as AssetGroupBy)"
+            variant="outline"
+            size="sm"
+          >
+            <ToggleGroupItem value="kind">Kind</ToggleGroupItem>
+            <ToggleGroupItem value="plugin">Plugin</ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
         <div class="flex-1 overflow-y-auto px-6 py-4">
@@ -341,36 +362,38 @@ function kindLabel(kind: AssetKind): string {
             <template v-else>All your library assets are already in this bundle.</template>
           </div>
           <div v-else class="space-y-4">
-            <div
-              v-for="kind in (['skills', 'commands', 'agents'] as AssetKind[])"
-              :key="kind"
-            >
-              <template v-if="candidatesByKind[kind].length > 0">
-                <div class="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {{ kind }}
-                  <span class="font-normal opacity-70">{{ candidatesByKind[kind].length }}</span>
-                </div>
-                <div class="space-y-0.5">
-                  <label
-                    v-for="a in candidatesByKind[kind]"
-                    :key="assetKey(a)"
-                    class="flex cursor-pointer items-start gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
-                  >
-                    <Checkbox
-                      :model-value="pickedKeys.has(assetKey(a))"
-                      class="mt-0.5"
-                      @update:model-value="togglePick(a)"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <div class="text-sm font-medium leading-none">{{ a.name }}</div>
-                      <p
-                        v-if="a.description"
-                        class="mt-1 line-clamp-1 text-xs text-muted-foreground"
-                      >{{ a.description }}</p>
+            <div v-for="g in candidateGroups" :key="g.key">
+              <div class="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {{ g.label }}
+                <span class="font-normal opacity-70">{{ g.items.length }}</span>
+              </div>
+              <div class="space-y-0.5">
+                <label
+                  v-for="a in g.items"
+                  :key="assetKey(a)"
+                  class="flex cursor-pointer items-start gap-3 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
+                >
+                  <Checkbox
+                    :model-value="pickedKeys.has(assetKey(a))"
+                    class="mt-0.5"
+                    @update:model-value="togglePick(a)"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <Badge
+                        v-if="addGroupBy === 'plugin'"
+                        variant="outline"
+                        class="h-4 px-1.5 text-[9px] uppercase"
+                      >{{ a.kind }}</Badge>
+                      <span class="text-sm font-medium leading-none">{{ a.name }}</span>
                     </div>
-                  </label>
-                </div>
-              </template>
+                    <p
+                      v-if="a.description"
+                      class="mt-1 line-clamp-1 text-xs text-muted-foreground"
+                    >{{ a.description }}</p>
+                  </div>
+                </label>
+              </div>
             </div>
           </div>
         </div>

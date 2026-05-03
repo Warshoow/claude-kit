@@ -155,6 +155,20 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // macOS keeps the native chrome (traffic lights overlaying our
+            // topbar via titleBarStyle = Overlay). On Windows and Linux we
+            // strip the native title bar so our topbar can serve as the
+            // window's drag region with custom min/max/close buttons.
+            #[cfg(not(target_os = "macos"))]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_decorations(false);
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             init_library,
             list_library,

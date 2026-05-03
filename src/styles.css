@@ -141,6 +141,20 @@ body,
   overflow: hidden;
 }
 
+/* Rounded window: tauri.conf has transparent:true and decorations off
+   on Windows/Linux, so the body itself is what the user sees. We round
+   it and add a hairline border for definition. macOS keeps native
+   chrome (titleBarStyle Overlay) so the rounding only matters at the
+   bottom there — transparent corners blend either way. */
+html {
+  background: transparent;
+}
+
+body {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
 /* ==========================================================================
    Markdown rendering (used by AssetDetailView preview + PluginDetailView readme)
    ========================================================================== */

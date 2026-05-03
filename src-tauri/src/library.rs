@@ -63,7 +63,30 @@ fn origins_path() -> PathBuf {
 pub fn read_origins() -> OriginsMap {
     let p = origins_path();
     let Ok(s) = fs::read_to_string(&p) else { return HashMap::new() };
-    serde_json::from_str(&s).unwrap_or_default()
+    let raw: OriginsMap = serde_json::from_str(&s).unwrap_or_default();
+
+    // Migrate keys written by older versions: command/agent entries used to
+    // include the `.md` suffix (e.g. `commands:foo.md`), which never matched
+    // the bare names produced by scan_kind. Strip the suffix on read and
+    // persist the cleaned map back so subsequent calls hit the fast path.
+    let mut needs_rewrite = false;
+    let mut fixed: OriginsMap = HashMap::with_capacity(raw.len());
+    for (k, v) in raw {
+        let new_k = match k.split_once(':') {
+            Some((kind, name))
+                if (kind == "commands" || kind == "agents") && name.ends_with(".md") =>
+            {
+                needs_rewrite = true;
+                format!("{kind}:{}", name.trim_end_matches(".md"))
+            }
+            _ => k,
+        };
+        fixed.insert(new_k, v);
+    }
+    if needs_rewrite {
+        let _ = write_origins(&fixed);
+    }
+    fixed
 }
 
 fn write_origins(origins: &OriginsMap) -> Result<()> {

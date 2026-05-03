@@ -201,7 +201,7 @@ pub fn fetch_readme(plugin: &Plugin) -> Result<Option<String>> {
     Ok(None)
 }
 
-fn parse_kind_name(entry: &str) -> Option<(AssetKind, &str)> {
+fn parse_kind_name(entry: &str) -> Option<(AssetKind, String)> {
     let (kind_str, name) = entry.split_once('/')?;
     let kind = match kind_str {
         "skills" => AssetKind::Skills,
@@ -209,7 +209,14 @@ fn parse_kind_name(entry: &str) -> Option<(AssetKind, &str)> {
         "agents" => AssetKind::Agents,
         _ => return None,
     };
-    Some((kind, name))
+    // Skills are directories — name has no extension. Commands and agents are
+    // `.md` files; the rest of the codebase keys them by their bare name (see
+    // scan_kind), so strip the suffix here to match that convention.
+    let bare = match kind {
+        AssetKind::Skills => name.to_string(),
+        _ => name.trim_end_matches(".md").to_string(),
+    };
+    Some((kind, bare))
 }
 
 pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportResult> {
@@ -275,7 +282,7 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
             plugin: plugin.name.clone(),
             imported_at: imported_at.clone(),
         };
-        let _ = library::set_origin(kind, name, origin);
+        let _ = library::set_origin(kind, &name, origin);
     }
 
     Ok(result)
@@ -333,7 +340,10 @@ mod tests {
             "expected one origin per imported asset"
         );
         for entry in &result.imported {
-            let key = entry.replace('/', ":");
+            // Origin keys mirror the bare asset name used by scan_kind, so
+            // command/agent entries strip their `.md` suffix here too.
+            let (kind, name) = parse_kind_name(entry).expect("parse entry");
+            let key = format!("{}:{}", kind.as_str(), name);
             let origin = origins.get(&key).expect("origin entry");
             assert_eq!(origin.marketplace, "claude-plugins-official");
             assert_eq!(origin.plugin, "code-review");

@@ -2,9 +2,10 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Download, RefreshCw, Search, X } from "lucide-vue-next";
+import { ArrowUpCircle, Check, Download, RefreshCw, Search, X } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import type { Plugin, PluginSource } from "@/lib/types";
+import { pluginImportStatus, type PluginImportStatus } from "@/lib/origins";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,30 @@ const {
   marketplaceLoading,
   marketplaceError,
   importingPlugin,
+  library,
 } = storeToRefs(store);
+
+function statusOf(p: Plugin): PluginImportStatus {
+  return pluginImportStatus(library.value, marketplace.value?.name, p);
+}
+
+function statusTitle(p: Plugin): string | undefined {
+  const s = statusOf(p);
+  if (s.kind === "update") {
+    return `Imported v${s.importedVersion} → marketplace has v${s.currentVersion}`;
+  }
+  if (s.kind === "unknown") {
+    return "Imported before version tracking — can't tell if updates exist";
+  }
+  return undefined;
+}
+
+function viewInLibrary(p: Plugin) {
+  router.push({
+    name: "browse-library-plugin",
+    params: { plugin: p.name },
+  });
+}
 
 const query = ref("");
 const selectedCategory = ref<string>("all");
@@ -195,11 +219,33 @@ onMounted(() => store.loadMarketplace());
             <h3 class="break-words text-sm font-semibold leading-snug">
               {{ p.name }}
             </h3>
-            <Badge
-              v-if="p.category"
-              variant="secondary"
-              class="shrink-0 text-[10px] uppercase tracking-wider"
-            >{{ p.category }}</Badge>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <template v-if="statusOf(p).kind === 'update'">
+                <Badge
+                  variant="outline"
+                  class="gap-1 border-amber-500/50 text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400"
+                  :title="statusTitle(p)"
+                >
+                  <ArrowUpCircle class="size-2.5" />
+                  Update
+                </Badge>
+              </template>
+              <template v-else-if="statusOf(p).kind === 'current' || statusOf(p).kind === 'unknown'">
+                <Badge
+                  variant="outline"
+                  class="gap-1 border-primary/40 text-[10px] uppercase tracking-wider text-primary"
+                  :title="statusTitle(p)"
+                >
+                  <Check class="size-2.5" />
+                  In library
+                </Badge>
+              </template>
+              <Badge
+                v-if="p.category"
+                variant="secondary"
+                class="text-[10px] uppercase tracking-wider"
+              >{{ p.category }}</Badge>
+            </div>
           </header>
 
           <p class="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
@@ -216,19 +262,56 @@ onMounted(() => store.loadMarketplace());
           </div>
 
           <div class="mt-4 flex items-center gap-2 pt-2">
-            <Button
-              size="sm"
-              :disabled="!!importingPlugin"
-              @click.stop="store.importMarketplacePlugin(p)"
-            >
-              <Download />
-              {{ importingPlugin === p.name ? "Importing…" : "Import" }}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              @click.stop="openPlugin(p)"
-            >Details</Button>
+            <template v-if="statusOf(p).kind === 'update'">
+              <Button
+                size="sm"
+                :disabled="!!importingPlugin"
+                title="Re-pulls the plugin. New files since last import are added; existing files are NOT overwritten yet (coming in a later version)."
+                @click.stop="store.importMarketplacePlugin(p)"
+              >
+                <ArrowUpCircle />
+                {{ importingPlugin === p.name ? "Updating…" : "Update" }}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                @click.stop="viewInLibrary(p)"
+              >View in library</Button>
+            </template>
+            <template v-else-if="statusOf(p).kind === 'current' || statusOf(p).kind === 'unknown'">
+              <Button
+                size="sm"
+                variant="outline"
+                @click.stop="viewInLibrary(p)"
+              >
+                <Check />
+                View in library
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                :disabled="!!importingPlugin"
+                title="Re-pull the plugin (any new files since last import will be added; existing files are kept)."
+                @click.stop="store.importMarketplacePlugin(p)"
+              >
+                {{ importingPlugin === p.name ? "Re-importing…" : "Re-import" }}
+              </Button>
+            </template>
+            <template v-else>
+              <Button
+                size="sm"
+                :disabled="!!importingPlugin"
+                @click.stop="store.importMarketplacePlugin(p)"
+              >
+                <Download />
+                {{ importingPlugin === p.name ? "Importing…" : "Import" }}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                @click.stop="openPlugin(p)"
+              >Details</Button>
+            </template>
           </div>
         </article>
       </div>

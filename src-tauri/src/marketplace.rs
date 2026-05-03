@@ -281,6 +281,8 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
             marketplace: marketplace_name.to_string(),
             plugin: plugin.name.clone(),
             imported_at: imported_at.clone(),
+            version: plugin.version.clone(),
+            git_ref: Some(resolved.git_ref.clone()),
         };
         let _ = library::set_origin(kind, &name, origin);
     }

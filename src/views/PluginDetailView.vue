@@ -5,6 +5,8 @@ import { storeToRefs } from "pinia";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
+  ArrowUpCircle,
+  Check,
   ChevronLeft,
   Download,
   ExternalLink,
@@ -13,6 +15,7 @@ import {
 import { useAppStore } from "@/stores/app";
 import { api } from "@/lib/api";
 import type { Plugin, PluginSource } from "@/lib/types";
+import { pluginImportStatus } from "@/lib/origins";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,7 +25,12 @@ const props = defineProps<{ name: string }>();
 
 const router = useRouter();
 const store = useAppStore();
-const { marketplace, marketplaceLoading, importingPlugin } = storeToRefs(store);
+const {
+  marketplace,
+  marketplaceLoading,
+  importingPlugin,
+  library,
+} = storeToRefs(store);
 
 const plugin = computed<Plugin | null>(
   () =>
@@ -30,6 +38,44 @@ const plugin = computed<Plugin | null>(
 );
 
 const isImporting = computed(() => importingPlugin.value === props.name);
+
+const status = computed(() =>
+  plugin.value
+    ? pluginImportStatus(library.value, marketplace.value?.name, plugin.value)
+    : { kind: "not-imported" as const }
+);
+
+const isImported = computed(() => status.value.kind !== "not-imported");
+
+// Latest import timestamp across all assets that originated from this plugin —
+// surfaced in the header so the user knows when they last pulled.
+const importedAt = computed<string | null>(() => {
+  let latest: string | null = null;
+  for (const a of library.value) {
+    if (a.origin?.plugin === props.name && a.origin.marketplace === marketplace.value?.name) {
+      if (!latest || a.origin.imported_at > latest) latest = a.origin.imported_at;
+    }
+  }
+  return latest;
+});
+
+function formatImportedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function viewInLibrary() {
+  router.push({
+    name: "browse-library-plugin",
+    params: { plugin: props.name },
+  });
+}
 
 // ── Readme fetch (per-mount, no global cache) ─────────────────────
 const readme = ref<string | null>(null);
@@ -168,15 +214,84 @@ function sourceLines(src: PluginSource): SourceLine[] {
                 variant="secondary"
                 class="text-[10px] uppercase tracking-wider"
               >{{ plugin.category }}</Badge>
+              <Badge
+                v-if="status.kind === 'update'"
+                variant="outline"
+                class="gap-1 border-amber-500/50 text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400"
+              >
+                <ArrowUpCircle class="size-2.5" />
+                Update available
+              </Badge>
+              <Badge
+                v-else-if="isImported"
+                variant="outline"
+                class="gap-1 border-primary/40 text-[10px] uppercase tracking-wider text-primary"
+              >
+                <Check class="size-2.5" />
+                In library
+              </Badge>
             </div>
             <p
               v-if="plugin.author"
               class="mt-1 text-sm text-muted-foreground"
             >by {{ plugin.author.name }}</p>
+            <p
+              v-if="status.kind === 'update'"
+              class="mt-1 text-xs text-amber-600 dark:text-amber-400"
+            >
+              Imported v{{ status.importedVersion }} ·
+              marketplace has v{{ status.currentVersion }}
+            </p>
+            <p
+              v-else-if="status.kind === 'unknown'"
+              class="mt-1 text-xs text-muted-foreground"
+            >
+              Imported before version tracking — can't tell if updates exist.
+              <span v-if="importedAt">({{ formatImportedAt(importedAt) }})</span>
+            </p>
+            <p
+              v-else-if="isImported && importedAt"
+              class="mt-1 text-xs text-muted-foreground"
+            >Imported on {{ formatImportedAt(importedAt) }}<span
+              v-if="status.kind === 'current' && status.importedVersion"
+            > · v{{ status.importedVersion }}</span></p>
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
+            <template v-if="status.kind === 'update'">
+              <Button
+                size="sm"
+                :disabled="isImporting"
+                title="Re-pulls the plugin. New files since last import are added; existing files are NOT overwritten yet (coming in a later version)."
+                @click="store.importMarketplacePlugin(plugin)"
+              >
+                <Loader2 v-if="isImporting" class="animate-spin" />
+                <ArrowUpCircle v-else />
+                {{ isImporting ? "Updating…" : "Update" }}
+              </Button>
+              <Button size="sm" variant="ghost" @click="viewInLibrary">
+                View in library
+              </Button>
+            </template>
+            <template v-else-if="isImported">
+              <Button size="sm" variant="outline" @click="viewInLibrary">
+                <Check />
+                View in library
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                :disabled="isImporting"
+                title="Re-pull the plugin (any new files since last import will be added; existing files are kept)."
+                @click="store.importMarketplacePlugin(plugin)"
+              >
+                <Loader2 v-if="isImporting" class="animate-spin" />
+                <Download v-else />
+                {{ isImporting ? "Re-importing…" : "Re-import" }}
+              </Button>
+            </template>
             <Button
+              v-else
               size="sm"
               :disabled="isImporting"
               @click="store.importMarketplacePlugin(plugin)"

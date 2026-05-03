@@ -13,6 +13,10 @@ export interface Origin {
   marketplace: string;
   plugin: string;
   imported_at: string;
+  /** Plugin version at import time (from marketplace.json), if it had one. */
+  version?: string;
+  /** Resolved git ref we actually pulled (branch / tag / sha). */
+  git_ref?: string;
 }
 
 export interface BundleRef {

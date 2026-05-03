@@ -46,6 +46,14 @@ pub struct Origin {
     pub plugin: String,
     /// ISO 8601 timestamp.
     pub imported_at: String,
+    /// Plugin version reported by the marketplace at import time, if any.
+    /// Used to detect when a newer version becomes available.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Resolved git ref (branch / tag / sha) we actually pulled from. Useful
+    /// for traceability — version-less plugins still get an audit trail.
+    #[serde(default)]
+    pub git_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

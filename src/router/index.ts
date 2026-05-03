@@ -28,6 +28,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import("@/views/BrowseLibraryView.vue"),
       },
       {
+        path: "library/:plugin",
+        name: "browse-library-plugin",
+        component: () => import("@/views/LibraryPluginDetailView.vue"),
+        props: true,
+      },
+      {
         path: "marketplace",
         name: "browse-marketplace",
         component: () => import("@/views/BrowseMarketplaceView.vue"),

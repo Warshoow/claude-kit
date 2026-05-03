@@ -106,6 +106,23 @@ export const useAppStore = defineStore("app", () => {
     toast.success(`Removed ${n} symlink${n === 1 ? "" : "s"}`);
   }
 
+  // ── Library writes ──────────────────────────────────────────────
+  async function createAsset(
+    kind: Asset["kind"],
+    name: string,
+    description?: string
+  ): Promise<boolean> {
+    try {
+      await api.createAsset(kind, name, description);
+      await refreshLibrary();
+      toast.success(`Created ${kind}/${name}`);
+      return true;
+    } catch (e) {
+      toast.error("Couldn't create asset", { description: String(e) });
+      return false;
+    }
+  }
+
   // ── Plugin import (local folder) ────────────────────────────────
   async function importLocalPlugin() {
     const selected = await open({
@@ -191,6 +208,7 @@ export const useAppStore = defineStore("app", () => {
     toggleAsset,
     cleanProject,
     importLocalPlugin,
+    createAsset,
     loadMarketplace,
     importMarketplacePlugin,
   };

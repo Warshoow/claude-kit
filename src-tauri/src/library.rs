@@ -215,6 +215,61 @@ pub fn write_asset_content(kind: AssetKind, name: &str, content: &str) -> Result
     Ok(())
 }
 
+/// Validate a slug used as an asset name. We refuse anything that would either
+/// confuse the filesystem (slashes / dots) or look weird in URLs.
+fn validate_asset_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(anyhow!("name cannot be empty"));
+    }
+    if name.len() > 64 {
+        return Err(anyhow!("name too long (max 64 chars)"));
+    }
+    let ok = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !ok {
+        return Err(anyhow!(
+            "name must contain only letters, digits, '-' or '_'"
+        ));
+    }
+    Ok(())
+}
+
+/// Create a brand-new asset with a minimal frontmatter template. Errors if an
+/// asset of the same kind+name already exists — callers should not have to
+/// guard against accidental overwrites.
+pub fn create_asset(kind: AssetKind, name: &str, description: Option<&str>) -> Result<()> {
+    validate_asset_name(name)?;
+    ensure_layout()?;
+
+    let target = asset_file_path(kind, name);
+    if target.exists() {
+        return Err(anyhow!("{} '{name}' already exists", kind.as_str()));
+    }
+    // For skills we also need to refuse a pre-existing dir (without SKILL.md).
+    if matches!(kind, AssetKind::Skills) {
+        let dir = library_dir().join(kind.as_str()).join(name);
+        if dir.exists() {
+            return Err(anyhow!("skills/{name} directory already exists"));
+        }
+    }
+
+    let desc = description.unwrap_or("").trim();
+    let frontmatter = if desc.is_empty() {
+        String::from("---\ndescription:\n---\n\n")
+    } else {
+        format!("---\ndescription: {desc}\n---\n\n")
+    };
+    let body = format!("# {name}\n");
+    let content = format!("{frontmatter}{body}");
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&target, content).map_err(|e| anyhow!("write {}: {e}", target.display()))?;
+    Ok(())
+}
+
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {

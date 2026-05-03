@@ -36,6 +36,8 @@ export const api = {
     invoke<string>("read_asset", { kind, name }),
   writeAsset: (kind: AssetKind, name: string, content: string) =>
     invoke<void>("write_asset", { kind, name, content }),
+  createAsset: (kind: AssetKind, name: string, description?: string) =>
+    invoke<void>("create_asset", { kind, name, description }),
   listMarketplacePlugins: (url?: string) =>
     invoke<Marketplace>("list_marketplace_plugins", { url }),
   importMarketplacePlugin: (plugin: Plugin) =>

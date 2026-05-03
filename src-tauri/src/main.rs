@@ -109,6 +109,15 @@ fn write_asset(kind: AssetKind, name: String, content: String) -> Result<(), Str
 }
 
 #[tauri::command]
+fn create_asset(
+    kind: AssetKind,
+    name: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    library::create_asset(kind, &name, description.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn list_marketplace_plugins(url: Option<String>) -> Result<Marketplace, String> {
     let url = url.unwrap_or_else(|| marketplace::DEFAULT_MARKETPLACE_URL.to_string());
     marketplace::fetch_marketplace(&url).map_err(|e| e.to_string())
@@ -184,6 +193,7 @@ fn main() {
             import_plugin,
             read_asset,
             write_asset,
+            create_asset,
             list_marketplace_plugins,
             import_marketplace_plugin,
             fetch_plugin_readme,

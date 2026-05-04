@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Folder, Minus, Square, X, Copy } from "lucide-vue-next";
+import appIcon from "@/assets/icon.png";
 import { useAppStore } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -101,9 +102,10 @@ onMounted(() => {
       @mousedown="onTopbarMouseDown"
       @dblclick="onTopbarDblClick"
     >
-      <span class="pointer-events-none text-[11px] font-semibold tracking-tight text-muted-foreground">
-        claude-kit
-      </span>
+      <div class="pointer-events-none flex items-center gap-1.5">
+        <img :src="appIcon" alt="" class="size-4 rounded-sm" draggable="false" />
+        <span class="text-[11px] font-semibold tracking-tight text-muted-foreground">claude-kit</span>
+      </div>
 
       <ToggleGroup
         type="single"

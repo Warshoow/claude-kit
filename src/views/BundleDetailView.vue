@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
+import { useBundleStore } from "@/stores/bundle";
 import { assetKey } from "@/lib/types";
 import type { Asset, AssetKind, BundleRef } from "@/lib/types";
 import {
@@ -52,6 +53,7 @@ import {
 const props = defineProps<{ name: string }>();
 
 const store = useAppStore();
+const bundleStore = useBundleStore();
 const router = useRouter();
 const { bundles, library, projectPath, installedKeys } = storeToRefs(store);
 
@@ -112,7 +114,7 @@ async function commitAdd() {
   const newRefs: BundleRef[] = library.value
     .filter((a) => pickedKeys.value.has(assetKey(a)))
     .map((a) => ({ kind: a.kind, name: a.name }));
-  await store.updateBundle({
+  await bundleStore.updateBundle({
     ...bundle.value,
     assets: [...bundle.value.assets, ...newRefs],
   });
@@ -125,7 +127,7 @@ async function removeAsset(ref: BundleRef) {
   const assets = bundle.value.assets.filter(
     (a) => !(a.kind === ref.kind && a.name === ref.name)
   );
-  await store.updateBundle({ ...bundle.value, assets });
+  await bundleStore.updateBundle({ ...bundle.value, assets });
 }
 
 // ── Delete bundle ─────────────────────────────────────────────────
@@ -133,7 +135,7 @@ const deleteOpen = ref(false);
 
 async function confirmDelete() {
   if (!bundle.value) return;
-  await store.deleteBundle(bundle.value.name);
+  await bundleStore.deleteBundle(bundle.value.name);
   deleteOpen.value = false;
   router.push({ name: "bundles" });
 }

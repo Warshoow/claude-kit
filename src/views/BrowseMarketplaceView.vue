@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { ArrowUpCircle, Check, Download, RefreshCw, Search, X } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
+import { useMarketplaceStore } from "@/stores/marketplace";
 import type { Plugin, PluginSource } from "@/lib/types";
 import { pluginImportStatus, type PluginImportStatus } from "@/lib/origins";
 import { Button } from "@/components/ui/button";
@@ -19,14 +20,15 @@ import {
 } from "@/components/ui/select";
 
 const store = useAppStore();
+const marketplaceStore = useMarketplaceStore();
 const router = useRouter();
+const { library } = storeToRefs(store);
 const {
   marketplace,
   marketplaceLoading,
   marketplaceError,
   importingPlugin,
-  library,
-} = storeToRefs(store);
+} = storeToRefs(marketplaceStore);
 
 function statusOf(p: Plugin): PluginImportStatus {
   return pluginImportStatus(library.value, marketplace.value?.name, p);
@@ -103,7 +105,7 @@ function shortRepo(url: string): string {
 }
 
 // Lazy fetch on first visit; cached afterwards.
-onMounted(() => store.loadMarketplace());
+onMounted(() => marketplaceStore.loadMarketplace());
 </script>
 
 <template>
@@ -161,7 +163,7 @@ onMounted(() => store.loadMarketplace());
         variant="outline"
         size="sm"
         :disabled="marketplaceLoading"
-        @click="store.loadMarketplace(true)"
+        @click="marketplaceStore.loadMarketplace(true)"
       >
         <RefreshCw :class="marketplaceLoading ? 'animate-spin' : ''" />
         {{ marketplaceLoading ? "Loading…" : "Refresh" }}
@@ -189,7 +191,7 @@ onMounted(() => store.loadMarketplace());
           class="mt-3"
           size="sm"
           variant="outline"
-          @click="store.loadMarketplace(true)"
+          @click="marketplaceStore.loadMarketplace(true)"
         >Retry</Button>
       </div>
 
@@ -267,7 +269,7 @@ onMounted(() => store.loadMarketplace());
                 size="sm"
                 :disabled="!!importingPlugin"
                 title="Re-pulls the plugin. New files since last import are added; existing files are NOT overwritten yet (coming in a later version)."
-                @click.stop="store.importMarketplacePlugin(p)"
+                @click.stop="marketplaceStore.importMarketplacePlugin(p)"
               >
                 <ArrowUpCircle />
                 {{ importingPlugin === p.name ? "Updating…" : "Update" }}
@@ -292,7 +294,7 @@ onMounted(() => store.loadMarketplace());
                 size="sm"
                 :disabled="!!importingPlugin"
                 title="Re-pull the plugin (any new files since last import will be added; existing files are kept)."
-                @click.stop="store.importMarketplacePlugin(p)"
+                @click.stop="marketplaceStore.importMarketplacePlugin(p)"
               >
                 {{ importingPlugin === p.name ? "Re-importing…" : "Re-import" }}
               </Button>
@@ -301,7 +303,7 @@ onMounted(() => store.loadMarketplace());
               <Button
                 size="sm"
                 :disabled="!!importingPlugin"
-                @click.stop="store.importMarketplacePlugin(p)"
+                @click.stop="marketplaceStore.importMarketplacePlugin(p)"
               >
                 <Download />
                 {{ importingPlugin === p.name ? "Importing…" : "Import" }}

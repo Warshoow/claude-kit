@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useAppStore } from "@/stores/app";
+import { useLibraryStore } from "@/stores/library";
 import type { AssetKind } from "@/lib/types";
 import { assetKey } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 
 const store = useAppStore();
+const libraryStore = useLibraryStore();
 const router = useRouter();
 
 const kind = ref<AssetKind>("skills");
@@ -69,7 +71,7 @@ const canSubmit = computed(
 async function submit() {
   if (!canSubmit.value) return;
   submitting.value = true;
-  const ok = await store.createAsset(
+  const ok = await libraryStore.createAsset(
     kind.value,
     trimmedName.value,
     description.value.trim() || undefined

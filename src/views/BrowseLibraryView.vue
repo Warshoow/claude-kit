@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
+import { usePluginStore } from "@/stores/plugin";
 import type { Asset, AssetKind } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ interface PluginGroup {
 }
 
 const store = useAppStore();
+const pluginStore = usePluginStore();
 const router = useRouter();
 const { library } = storeToRefs(store);
 
@@ -151,7 +153,7 @@ function openPlugin(g: PluginGroup) {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="outline" size="sm" @click="store.importLocalPlugin">
+            <Button variant="outline" size="sm" @click="pluginStore.importLocalPlugin">
               <Upload />
               Import
             </Button>
@@ -179,7 +181,7 @@ function openPlugin(g: PluginGroup) {
                 <Plus />
                 New asset
               </Button>
-              <Button variant="outline" @click="store.importLocalPlugin">
+              <Button variant="outline" @click="pluginStore.importLocalPlugin">
                 <Upload />
                 Import folder
               </Button>

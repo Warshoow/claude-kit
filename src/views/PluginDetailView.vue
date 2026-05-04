@@ -13,6 +13,7 @@ import {
   Loader2,
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
+import { useMarketplaceStore } from "@/stores/marketplace";
 import { api } from "@/lib/api";
 import type { Plugin, PluginSource } from "@/lib/types";
 import { pluginImportStatus } from "@/lib/origins";
@@ -25,12 +26,13 @@ const props = defineProps<{ name: string }>();
 
 const router = useRouter();
 const store = useAppStore();
+const marketplaceStore = useMarketplaceStore();
+const { library } = storeToRefs(store);
 const {
   marketplace,
   marketplaceLoading,
   importingPlugin,
-  library,
-} = storeToRefs(store);
+} = storeToRefs(marketplaceStore);
 
 const plugin = computed<Plugin | null>(
   () =>
@@ -107,9 +109,9 @@ const renderedReadme = computed<string>(() => {
 });
 
 // Make sure the marketplace data is in memory; if the user lands here via a
-// direct URL refresh, store.loadMarketplace fetches it once.
+// direct URL refresh, marketplaceStore.loadMarketplace fetches it once.
 onMounted(async () => {
-  if (!marketplace.value) await store.loadMarketplace();
+  if (!marketplace.value) await marketplaceStore.loadMarketplace();
   await loadReadme();
 });
 
@@ -263,7 +265,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
                 size="sm"
                 :disabled="isImporting"
                 title="Re-pulls the plugin. New files since last import are added; existing files are NOT overwritten yet (coming in a later version)."
-                @click="store.importMarketplacePlugin(plugin)"
+                @click="marketplaceStore.importMarketplacePlugin(plugin)"
               >
                 <Loader2 v-if="isImporting" class="animate-spin" />
                 <ArrowUpCircle v-else />
@@ -283,7 +285,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
                 variant="ghost"
                 :disabled="isImporting"
                 title="Re-pull the plugin (any new files since last import will be added; existing files are kept)."
-                @click="store.importMarketplacePlugin(plugin)"
+                @click="marketplaceStore.importMarketplacePlugin(plugin)"
               >
                 <Loader2 v-if="isImporting" class="animate-spin" />
                 <Download v-else />
@@ -294,7 +296,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
               v-else
               size="sm"
               :disabled="isImporting"
-              @click="store.importMarketplacePlugin(plugin)"
+              @click="marketplaceStore.importMarketplacePlugin(plugin)"
             >
               <Loader2 v-if="isImporting" class="animate-spin" />
               <Download v-else />

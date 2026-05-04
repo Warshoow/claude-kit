@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { Plus, Package, Boxes, ChevronRight } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
+import { useBundleStore } from "@/stores/bundle";
 import { assetKey } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 
 const store = useAppStore();
+const bundleStore = useBundleStore();
 const router = useRouter();
 const { bundles, installedKeys } = storeToRefs(store);
 
@@ -52,7 +54,7 @@ async function submitCreate() {
   if (!name || submitting.value) return;
   submitting.value = true;
   try {
-    await store.createBundle(name, newDesc.value.trim() || undefined);
+    await bundleStore.createBundle(name, newDesc.value.trim() || undefined);
     createOpen.value = false;
     router.push({ name: "bundle-detail", params: { name } });
   } finally {

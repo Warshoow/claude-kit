@@ -38,6 +38,10 @@
   "mounts": [
     // Cache le dossier target/ dans un volume Docker (évite les I/O lents)
     "source=rust-tauri-target,target=${containerWorkspaceFolder}/src-tauri/target,type=volume",
+    // Expose les bundles de prod (.deb, AppImage, .rpm) directement dans WSL
+    // même quand le container est fermé. Créer ~/claude-kit-dist sur WSL avant
+    // de (re)ouvrir le container : mkdir -p ~/claude-kit-dist
+    "source=${localEnv:HOME}/claude-kit-dist,target=${containerWorkspaceFolder}/src-tauri/target/release/bundle,type=bind,consistency=cached",
     // Persiste le cache Cargo entre les rebuilds du conteneur
     "source=rust-cargo-registry,target=/usr/local/cargo/registry,type=volume",
     // node_modules dans un volume nommé : pas dans le repo host, vidable via `docker volume rm claude-kit-node-modules`

@@ -10,12 +10,12 @@
    ========================================================================== */
 
 :root {
-  /* Light mode — orange primary on clean white */
-  --background: oklch(0.99 0 0);
+  /* Light mode — fond gris chaud, pas blanc pur */
+  --background: oklch(0.94 0.005 45);
   --foreground: oklch(0.13 0 0);
-  --card: oklch(1 0 0);
+  --card: oklch(0.97 0.003 45);
   --card-foreground: oklch(0.13 0 0);
-  --popover: oklch(1 0 0);
+  --popover: oklch(0.97 0.003 45);
   --popover-foreground: oklch(0.13 0 0);
   --primary: oklch(0.702 0.195 45.7);
   --primary-foreground: oklch(1 0 0);
@@ -47,12 +47,12 @@
 }
 
 .dark {
-  /* Dark mode — icon palette: VS Code-like bg, orange primary, grey surfaces */
-  --background: oklch(0.15 0 0);
+  /* Dark mode — fond gris anthracite, pas noir pur */
+  --background: oklch(0.20 0 0);
   --foreground: oklch(0.95 0 0);
-  --card: oklch(0.20 0 0);
+  --card: oklch(0.25 0 0);
   --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.24 0 0);
+  --popover: oklch(0.28 0 0);
   --popover-foreground: oklch(0.95 0 0);
   --primary: oklch(0.702 0.195 45.7);
   --primary-foreground: oklch(1 0 0);

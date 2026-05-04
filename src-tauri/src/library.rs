@@ -131,6 +131,8 @@ pub fn ensure_layout() -> Result<()> {
     for kind in AssetKind::all() {
         fs::create_dir_all(library_dir().join(kind.as_str()))?;
     }
+    fs::create_dir_all(library_dir().join("hooks"))?;
+    fs::create_dir_all(library_dir().join("mcp"))?;
     fs::create_dir_all(bundles_dir())?;
     Ok(())
 }
@@ -369,6 +371,47 @@ pub fn import_from_plugin(source: &Path) -> Result<ImportResult> {
                     imported.push(format!("{}/{name}", kind.as_str()));
                 }
             }
+        }
+    }
+
+    // --- hooks/ ---
+    let hooks_src = source.join("hooks");
+    if hooks_src.is_dir() {
+        let plugin_folder = source
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let hooks_dst = library_dir().join("hooks").join(&plugin_folder);
+        if hooks_dst.exists() {
+            skipped.push(format!("hooks/{plugin_folder}"));
+        } else {
+            fs::create_dir_all(&hooks_dst)?;
+            for entry in fs::read_dir(&hooks_src)?.flatten() {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let src_path = entry.path();
+                if !src_path.is_file() {
+                    continue;
+                }
+                let dst_path = hooks_dst.join(&file_name);
+                fs::copy(&src_path, &dst_path)?;
+                imported.push(format!("hooks/{file_name}"));
+            }
+        }
+    }
+
+    // --- mcp.json ---
+    let mcp_src = source.join("mcp.json");
+    if mcp_src.is_file() {
+        let plugin_folder = source
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let mcp_dst = library_dir().join("mcp").join(format!("{plugin_folder}.json"));
+        if mcp_dst.exists() {
+            skipped.push(format!("mcp/{plugin_folder}.json"));
+        } else {
+            fs::copy(&mcp_src, &mcp_dst)?;
+            imported.push(format!("mcp/{plugin_folder}.json"));
         }
     }
 

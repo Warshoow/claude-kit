@@ -10,13 +10,25 @@ import { useAppStore } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Toaster } from "@/components/ui/sonner";
+import WelcomeScreen from "@/components/WelcomeScreen.vue";
 
 const store = useAppStore();
 const route = useRoute();
 const router = useRouter();
 
-const { projectPath } = storeToRefs(store);
+const { projectPath, library, bundles } = storeToRefs(store);
 const { theme, toggle: toggleTheme } = useTheme();
+
+const welcomed = ref(localStorage.getItem("claude-kit:welcomed") === "1");
+
+const isFirstRun = computed(
+  () => !welcomed.value && library.value.length === 0 && bundles.value.length === 0
+);
+
+function dismissWelcome() {
+  welcomed.value = true;
+  localStorage.setItem("claude-kit:welcomed", "1");
+}
 
 // Detect platform for window-chrome decisions. macOS gets the native
 // traffic lights overlaying the topbar (via titleBarStyle: "Overlay"
@@ -176,7 +188,8 @@ onMounted(() => {
     </header>
 
     <main class="flex-1 overflow-hidden">
-      <RouterView />
+      <WelcomeScreen v-if="isFirstRun" @dismiss="dismissWelcome" />
+      <RouterView v-else />
     </main>
 
     <Toaster position="bottom-right" rich-colors />

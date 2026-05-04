@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>claude-kit</title>
+    <!-- Apply theme before first paint to avoid flash -->
+    <script>
+      const t = localStorage.getItem('claude-kit:theme') ?? 'dark'
+      document.documentElement.className = t
+    </script>
   </head>
   <body>
     <div id="app"></div>

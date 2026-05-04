@@ -47,38 +47,38 @@
 }
 
 .dark {
-  /* Dark mode — icon palette: near-black bg, orange primary, grey surfaces */
-  --background: oklch(0.1 0 0);
+  /* Dark mode — icon palette: VS Code-like bg, orange primary, grey surfaces */
+  --background: oklch(0.15 0 0);
   --foreground: oklch(0.95 0 0);
-  --card: oklch(0.14 0 0);
+  --card: oklch(0.20 0 0);
   --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.16 0 0);
+  --popover: oklch(0.24 0 0);
   --popover-foreground: oklch(0.95 0 0);
   --primary: oklch(0.702 0.195 45.7);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.22 0 0);
+  --secondary: oklch(0.29 0 0);
   --secondary-foreground: oklch(0.95 0 0);
-  --muted: oklch(0.18 0 0);
-  --muted-foreground: oklch(0.58 0 0);
-  --accent: oklch(0.702 0.195 45.7 / 12%);
+  --muted: oklch(0.24 0 0);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.702 0.195 45.7 / 15%);
   --accent-foreground: oklch(0.702 0.195 45.7);
   --destructive: oklch(0.627 0.258 29.23);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 10%);
+  --border: oklch(1 0 0 / 16%);
+  --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.702 0.195 45.7);
   --chart-1: oklch(0.702 0.195 45.7);
   --chart-2: oklch(0.76 0.16 55);
   --chart-3: oklch(0.55 0.15 40);
   --chart-4: oklch(0.85 0.13 50);
   --chart-5: oklch(0.627 0.258 29.23);
-  --sidebar: oklch(0.12 0 0);
+  --sidebar: oklch(0.17 0 0);
   --sidebar-foreground: oklch(0.95 0 0);
   --sidebar-primary: oklch(0.702 0.195 45.7);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.18 0 0);
+  --sidebar-accent: oklch(0.24 0 0);
   --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-border: oklch(1 0 0 / 16%);
   --sidebar-ring: oklch(0.702 0.195 45.7);
 }
 
@@ -131,6 +131,14 @@
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
+}
+
+/* Scrollbar visible sur Linux/WebKit */
+[data-slot="scroll-area-thumb"] {
+  background: oklch(0.4 0 0);
+}
+[data-slot="scroll-area-thumb"]:hover {
+  background: oklch(0.55 0 0);
 }
 
 /* Viewport reset — keep the app full-height with no body scroll */

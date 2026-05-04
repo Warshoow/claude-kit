@@ -3,8 +3,9 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Folder, Minus, Square, X, Copy } from "lucide-vue-next";
+import { Folder, Minus, Square, X, Copy, Sun, Moon } from "lucide-vue-next";
 import appIcon from "@/assets/icon.png";
+import { useTheme } from "@/composables/useTheme";
 import { useAppStore } from "@/stores/app";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -15,6 +16,7 @@ const route = useRoute();
 const router = useRouter();
 
 const { projectPath } = storeToRefs(store);
+const { theme, toggle: toggleTheme } = useTheme();
 
 // Detect platform for window-chrome decisions. macOS gets the native
 // traffic lights overlaying the topbar (via titleBarStyle: "Overlay"
@@ -97,7 +99,7 @@ onMounted(() => {
   <div class="flex h-screen flex-col">
     <header
       data-tauri-drag-region
-      class="topbar flex h-9 shrink-0 select-none items-center gap-3 border-b bg-card/40 pr-0 backdrop-blur"
+      class="topbar flex h-9 shrink-0 select-none items-center gap-3 border-b bg-card pr-0"
       :class="isMacOS ? 'pl-[80px]' : 'pl-3'"
       @mousedown="onTopbarMouseDown"
       @dblclick="onTopbarDblClick"
@@ -131,6 +133,16 @@ onMounted(() => {
         <Folder class="size-3 shrink-0" />
         <span v-if="projectPath" class="truncate font-mono">{{ projectPath }}</span>
         <span v-else class="italic">No project selected</span>
+      </button>
+
+      <button
+        type="button"
+        class="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        :title="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+        @click="toggleTheme"
+      >
+        <Sun v-if="theme === 'dark'" class="size-3.5" />
+        <Moon v-else class="size-3.5" />
       </button>
 
       <!-- Custom window controls (Windows / Linux only — macOS uses native traffic lights) -->

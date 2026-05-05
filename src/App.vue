@@ -53,6 +53,8 @@ async function minimize() {
 async function toggleMaximize() {
   try {
     await getCurrentWindow().toggleMaximize();
+    // Give the WM time to process the state change before querying (Linux/WSLg)
+    await new Promise(r => setTimeout(r, 80));
     await refreshMaxState();
   } catch { /* noop */ }
 }
@@ -70,6 +72,7 @@ function isInteractive(target: EventTarget | null): boolean {
 
 function onTopbarMouseDown(e: MouseEvent) {
   if (e.button !== 0) return;
+  if (e.detail >= 2) return; // second click of a dblclick — let dblclick handler deal with it
   if (isInteractive(e.target)) return;
   try {
     getCurrentWindow().startDragging();

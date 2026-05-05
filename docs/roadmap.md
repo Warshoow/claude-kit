@@ -65,6 +65,16 @@ Pas de liste de providers figée — l'user entre la base URL et la clé, ça co
 
 ---
 
+## Marketplaces multiples
+
+Aujourd'hui l'app est câblée sur `claude-plugins-official` (Anthropic). L'idée : permettre d'ajouter d'autres sources.
+
+- Gestion d'une liste de marketplaces dans les settings (URL du `marketplace.json` + nom d'affichage)
+- La marketplace officielle reste présente par défaut et non supprimable
+- Browse Marketplace affiche les plugins de toutes les sources actives, avec un indicateur d'origine par plugin
+- Origins/import tracking reste cohérent (`marketplace` field dans `.origins.json` identifie déjà la source)
+- Cas d'usage : marketplace communautaire, marketplace privée d'équipe, fork local pour tests
+
 ## Long terme
 
 - CLI `ck` — interface ligne de commande pour les mêmes opérations (apply bundle, import plugin, etc.)

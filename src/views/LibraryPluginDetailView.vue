@@ -3,10 +3,16 @@ import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import {
+  BookOpen,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   FolderOpen,
   Package,
   Search,
+  Server,
+  Terminal,
+  Trash2,
   X,
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
@@ -18,12 +24,23 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const LOCAL_KEY = "__local__";
 
@@ -31,7 +48,7 @@ const props = defineProps<{ plugin: string }>();
 
 const store = useAppStore();
 const router = useRouter();
-const { library, installedKeys, projectPath } = storeToRefs(store);
+const { library, hooks, mcp, installedKeys, installedHooks, projectPath } = storeToRefs(store);
 
 const canInstall = computed(() => !!projectPath.value);
 const isLocal = computed(() => props.plugin === LOCAL_KEY);
@@ -44,8 +61,27 @@ const pluginAssets = computed<Asset[]>(() => {
 });
 
 const marketplace = computed<string | null>(() => {
-  // All assets in a non-local bucket share the same marketplace tag.
   return pluginAssets.value[0]?.origin?.marketplace ?? null;
+});
+
+// True when this non-local plugin exists in the marketplace catalog.
+// We determine this by checking if it has assets with an origin, or
+// hooks/mcp (all imported from the marketplace).
+const hasMarketplaceDocs = computed(
+  () => !isLocal.value && (marketplace.value !== null || pluginHooks.value.length > 0 || !!pluginMcp.value)
+);
+
+const pluginHooks = computed(() =>
+  isLocal.value ? [] : hooks.value.filter((h) => h.plugin === props.plugin)
+);
+
+const pluginMcp = computed(() =>
+  isLocal.value ? null : mcp.value.find((m) => m.plugin === props.plugin) ?? null
+);
+
+const mcpServersJson = computed(() => {
+  if (!pluginMcp.value) return "";
+  return JSON.stringify(pluginMcp.value.servers, null, 2);
 });
 
 const query = ref("");
@@ -66,6 +102,18 @@ const groups = computed(() => groupAssets(filtered.value, "kind"));
 
 const title = computed(() => (isLocal.value ? "Local" : props.plugin));
 
+// Per-hook expanded state
+const expandedHooks = ref(new Set<string>());
+function toggleHookExpand(filename: string) {
+  if (expandedHooks.value.has(filename)) {
+    expandedHooks.value.delete(filename);
+  } else {
+    expandedHooks.value.add(filename);
+  }
+}
+
+const deleteOpen = ref(false);
+
 function openAsset(a: Asset) {
   router.push({
     name: "asset-detail",
@@ -76,6 +124,20 @@ function openAsset(a: Asset) {
 function onCheckboxChange(a: Asset) {
   if (!canInstall.value) return;
   store.toggleAsset(a);
+}
+
+function isHookInstalled(plugin: string, filename: string): boolean {
+  return installedHooks.value.some((h) => h.plugin === plugin && h.filename === filename);
+}
+
+function viewDocs() {
+  router.push({ name: "plugin-detail", params: { name: props.plugin } });
+}
+
+async function confirmDelete() {
+  await store.removePlugin(props.plugin);
+  deleteOpen.value = false;
+  router.push({ name: "browse-library" });
 }
 
 function back() {
@@ -96,24 +158,47 @@ function back() {
           Back to library
         </button>
 
-        <div class="flex items-center gap-2">
-          <FolderOpen
-            v-if="isLocal"
-            class="size-5 shrink-0 text-muted-foreground"
-          />
-          <Package v-else class="size-5 shrink-0 text-muted-foreground" />
-          <h1 class="truncate text-lg font-semibold">{{ title }}</h1>
-          <Badge
-            v-if="marketplace"
-            variant="secondary"
-            class="text-[10px] uppercase tracking-wider"
-          >from {{ marketplace }}</Badge>
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <FolderOpen v-if="isLocal" class="size-5 shrink-0 text-muted-foreground" />
+            <Package v-else class="size-5 shrink-0 text-muted-foreground" />
+            <h1 class="truncate text-lg font-semibold">{{ title }}</h1>
+            <Badge v-if="marketplace" variant="secondary" class="text-[10px] uppercase tracking-wider">
+              from {{ marketplace }}
+            </Badge>
+          </div>
+
+          <!-- Actions: docs + delete -->
+          <div v-if="!isLocal" class="flex shrink-0 items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button variant="outline" size="sm" @click="viewDocs">
+                  <BookOpen class="size-3.5" />
+                  Docs
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>View README and marketplace details</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  @click="deleteOpen = true"
+                >
+                  <Trash2 class="size-3.5" />
+                  Remove
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Remove this plugin from your library</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
 
-        <p
-          v-if="isLocal"
-          class="mt-1 text-xs text-muted-foreground"
-        >Assets you created here, not imported from any plugin.</p>
+        <p v-if="isLocal" class="mt-1 text-xs text-muted-foreground">
+          Assets you created here, not imported from any plugin.
+        </p>
       </div>
 
       <!-- Toolbar -->
@@ -125,9 +210,7 @@ function back() {
         </span>
 
         <div class="relative flex-1 max-w-md">
-          <Search
-            class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-          />
+          <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             v-model="query"
             type="text"
@@ -147,73 +230,172 @@ function back() {
 
       <!-- Body -->
       <ScrollArea class="flex-1 min-h-0">
-        <template v-if="pluginAssets.length === 0">
-          <div class="px-6 py-12 text-center text-xs text-muted-foreground">
-            <template v-if="isLocal">No local assets yet.</template>
-            <template v-else>This plugin has no assets in your library.</template>
-          </div>
-        </template>
-        <template v-else-if="filtered.length === 0">
-          <div class="px-6 py-12 text-center text-xs text-muted-foreground">
-            No match for "{{ query }}".
-          </div>
-        </template>
-        <template v-else>
-          <div class="space-y-3 p-3">
-            <div v-for="g in groups" :key="g.key">
-              <div
-                class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-              >
-                {{ g.label }}
-                <span class="font-normal opacity-70">{{ g.items.length }}</span>
-              </div>
-              <div class="space-y-0.5">
-                <div
-                  v-for="a in g.items"
-                  :key="assetKey(a)"
-                  class="group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
-                  :class="
-                    installedKeys.has(assetKey(a))
-                      ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                      : ''
-                  "
-                  tabindex="0"
-                  @click="openAsset(a)"
-                  @keydown.enter="openAsset(a)"
-                  @keydown.space.prevent="openAsset(a)"
-                >
-                  <Tooltip>
-                    <TooltipTrigger as-child>
-                      <Checkbox
-                        :model-value="installedKeys.has(assetKey(a))"
-                        :disabled="!canInstall"
-                        class="mt-0.5"
-                        @update:model-value="onCheckboxChange(a)"
-                        @click.stop
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {{
-                        canInstall
-                          ? "Toggle install in project"
-                          : "Pick a project to install"
-                      }}
-                    </TooltipContent>
-                  </Tooltip>
-
-                  <div class="min-w-0 flex-1">
-                    <span class="text-sm font-medium leading-none">{{ a.name }}</span>
-                    <p
-                      v-if="a.description"
-                      class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground"
-                    >{{ a.description }}</p>
+        <div class="space-y-0">
+          <!-- Assets section -->
+          <template v-if="pluginAssets.length === 0 && pluginHooks.length === 0 && !pluginMcp">
+            <div class="px-6 py-10 text-center text-xs text-muted-foreground">
+              <template v-if="isLocal">No local assets yet.</template>
+              <template v-else>This plugin has no assets in your library.</template>
+            </div>
+          </template>
+          <template v-else-if="pluginAssets.length > 0 && filtered.length === 0">
+            <div class="px-6 py-10 text-center text-xs text-muted-foreground">
+              No match for "{{ query }}".
+            </div>
+          </template>
+          <template v-else-if="filtered.length > 0">
+            <div class="space-y-3 p-3">
+              <div v-for="g in groups" :key="g.key">
+                <div class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {{ g.label }}
+                  <span class="font-normal opacity-70">{{ g.items.length }}</span>
+                </div>
+                <div class="space-y-0.5">
+                  <div
+                    v-for="a in g.items"
+                    :key="assetKey(a)"
+                    class="group flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 transition-colors hover:bg-accent/60"
+                    :class="installedKeys.has(assetKey(a)) ? 'bg-primary/10 ring-1 ring-inset ring-primary/30' : ''"
+                    tabindex="0"
+                    @click="openAsset(a)"
+                    @keydown.enter="openAsset(a)"
+                    @keydown.space.prevent="openAsset(a)"
+                  >
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Checkbox
+                          :model-value="installedKeys.has(assetKey(a))"
+                          :disabled="!canInstall"
+                          class="mt-0.5"
+                          @update:model-value="onCheckboxChange(a)"
+                          @click.stop
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {{ canInstall ? "Toggle install in project" : "Pick a project to install" }}
+                      </TooltipContent>
+                    </Tooltip>
+                    <div class="min-w-0 flex-1">
+                      <span class="text-sm font-medium leading-none">{{ a.name }}</span>
+                      <p v-if="a.description" class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground">
+                        {{ a.description }}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </template>
+          </template>
+
+          <!-- Hooks section -->
+          <template v-if="pluginHooks.length > 0">
+            <Separator class="my-1" />
+            <div class="p-3">
+              <div class="px-2.5 pt-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Hooks <span class="font-normal opacity-70">{{ pluginHooks.length }}</span>
+              </div>
+              <div class="space-y-1">
+                <div
+                  v-for="h in pluginHooks"
+                  :key="h.filename"
+                  class="rounded-md border"
+                  :class="isHookInstalled(h.plugin, h.filename) ? 'border-primary/30 bg-primary/5' : 'bg-card'"
+                >
+                  <!-- Hook row -->
+                  <div class="flex items-center gap-2.5 px-2.5 py-2">
+                    <Tooltip>
+                      <TooltipTrigger as-child>
+                        <Checkbox
+                          :model-value="isHookInstalled(h.plugin, h.filename)"
+                          :disabled="!canInstall"
+                          @update:model-value="store.toggleHook(h.plugin, h.filename)"
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {{ canInstall ? "Toggle install in project" : "Pick a project to install" }}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Terminal class="size-3.5 shrink-0 text-muted-foreground" />
+                    <span class="flex-1 truncate font-mono text-sm">{{ h.filename }}</span>
+                    <!-- Expand toggle -->
+                    <button
+                      type="button"
+                      class="ml-auto grid size-6 shrink-0 place-items-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      :title="expandedHooks.has(h.filename) ? 'Collapse' : 'View content'"
+                      @click="toggleHookExpand(h.filename)"
+                    >
+                      <ChevronDown
+                        class="size-3.5 transition-transform"
+                        :class="expandedHooks.has(h.filename) ? 'rotate-180' : ''"
+                      />
+                    </button>
+                  </div>
+                  <!-- Hook content -->
+                  <div v-if="expandedHooks.has(h.filename)" class="border-t px-3 py-2">
+                    <pre class="overflow-x-auto font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all">{{ h.content || '(empty file)' }}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- MCP section -->
+          <template v-if="pluginMcp">
+            <Separator class="my-1" />
+            <div class="p-3">
+              <div class="flex items-center justify-between px-2.5 pt-1 pb-2">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  MCP Servers
+                </div>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      class="h-6 px-2 text-xs"
+                      :disabled="!canInstall"
+                      @click="store.applyMcp(pluginMcp!.plugin)"
+                    >
+                      <Server class="size-3" />
+                      Merge into project
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {{ canInstall ? "Merge MCP servers into .claude/mcp.json" : "Pick a project first" }}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <pre class="overflow-x-auto rounded-md border bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">{{ mcpServersJson }}</pre>
+            </div>
+          </template>
+        </div>
       </ScrollArea>
     </div>
+
+    <!-- Delete confirmation -->
+    <AlertDialog v-model:open="deleteOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove "{{ props.plugin }}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            <span class="block">
+              This deletes all assets, hooks, and MCP config imported from this plugin.
+            </span>
+            <span class="mt-2 block text-xs">
+              Assets already applied to projects (as symlinks) will become broken links — use
+              <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">Clean all</code>
+              in Project view afterward to remove them.
+            </span>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive/90"
+            @click="confirmDelete"
+          >Remove plugin</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </TooltipProvider>
 </template>

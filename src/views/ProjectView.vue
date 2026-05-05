@@ -13,6 +13,7 @@ import {
 import { useAppStore } from "@/stores/app";
 import { assetKey } from "@/lib/types";
 import type { AssetKind, InstalledAsset } from "@/lib/types";
+import { Terminal } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,7 +31,7 @@ import {
 
 const store = useAppStore();
 const router = useRouter();
-const { projectPath, installed, bundles } = storeToRefs(store);
+const { projectPath, installed, installedHooks, bundles } = storeToRefs(store);
 
 // The trailing path segment, stripped of trailing slashes.
 const projectName = computed(() => {
@@ -225,7 +226,48 @@ function kindLabel(k: AssetKind): string {
             </div>
           </section>
 
-          <Separator v-if="installed.length > 0 && extras.length > 0" />
+          <Separator v-if="installed.length > 0 && (extras.length > 0 || installedHooks.length > 0)" />
+
+          <!-- Installed hooks -->
+          <section v-if="installedHooks.length > 0">
+            <div class="mb-3 flex items-center gap-2">
+              <h2 class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Hooks
+              </h2>
+              <Badge variant="secondary" class="font-mono text-[10px]">
+                {{ installedHooks.length }}
+              </Badge>
+            </div>
+            <div class="overflow-hidden rounded-lg border bg-card">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    <th class="px-4 py-2.5">Plugin</th>
+                    <th class="px-4 py-2.5">File</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y">
+                  <tr
+                    v-for="h in installedHooks"
+                    :key="`${h.plugin}/${h.filename}`"
+                    class="transition-colors"
+                  >
+                    <td class="px-4 py-2.5 align-middle">
+                      <Badge variant="outline" class="text-[10px]">{{ h.plugin }}</Badge>
+                    </td>
+                    <td class="px-4 py-2.5 align-middle">
+                      <div class="flex items-center gap-1.5 font-mono text-xs">
+                        <Terminal class="size-3 shrink-0 text-muted-foreground" />
+                        {{ h.filename }}
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <Separator v-if="installedHooks.length > 0 && extras.length > 0" />
 
           <!-- Extras -->
           <section v-if="installed.length > 0">

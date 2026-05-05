@@ -6,7 +6,10 @@ import { api } from "@/lib/api";
 import type {
   Asset,
   Bundle,
+  HookEntry,
   InstalledAsset,
+  InstalledHook,
+  McpEntry,
 } from "@/lib/types";
 import { assetKey } from "@/lib/types";
 
@@ -15,6 +18,9 @@ export const useAppStore = defineStore("app", () => {
   const library = ref<Asset[]>([]);
   const bundles = ref<Bundle[]>([]);
   const installed = ref<InstalledAsset[]>([]);
+  const hooks = ref<HookEntry[]>([]);
+  const mcp = ref<McpEntry[]>([]);
+  const installedHooks = ref<InstalledHook[]>([]);
   const projectPath = ref<string | null>(
     localStorage.getItem("claude-kit:last-project")
   );
@@ -34,13 +40,24 @@ export const useAppStore = defineStore("app", () => {
   async function refreshInstalled() {
     if (!projectPath.value) {
       installed.value = [];
+      installedHooks.value = [];
       return;
     }
-    installed.value = await api.listInstalled(projectPath.value);
+    [installed.value, installedHooks.value] = await Promise.all([
+      api.listInstalled(projectPath.value),
+      api.listInstalledHooks(projectPath.value),
+    ]);
+  }
+
+  async function refreshHooksMcp() {
+    [hooks.value, mcp.value] = await Promise.all([
+      api.listHooks(),
+      api.listMcp(),
+    ]);
   }
 
   async function refreshAll() {
-    await Promise.all([refreshLibrary(), refreshBundles(), refreshInstalled()]);
+    await Promise.all([refreshLibrary(), refreshBundles(), refreshInstalled(), refreshHooksMcp()]);
   }
 
   async function pickProject() {
@@ -88,12 +105,45 @@ export const useAppStore = defineStore("app", () => {
     toast.success(`Removed ${n} symlink${n === 1 ? "" : "s"}`);
   }
 
+  async function toggleHook(plugin: string, filename: string) {
+    if (!projectPath.value) {
+      toast.warning("Pick a project first");
+      return;
+    }
+    const isInstalled = installedHooks.value.some(
+      (h) => h.plugin === plugin && h.filename === filename
+    );
+    if (isInstalled) {
+      await api.removeHook(projectPath.value, filename);
+    } else {
+      await api.applyHook(projectPath.value, plugin, filename);
+    }
+    await refreshInstalled();
+  }
+
+  async function applyMcp(plugin: string) {
+    if (!projectPath.value) {
+      toast.warning("Pick a project first");
+      return;
+    }
+    await api.applyMcp(projectPath.value, plugin);
+    toast.success(`MCP servers from "${plugin}" merged into project`);
+  }
+
+  async function removePlugin(pluginName: string) {
+    await api.removePlugin(pluginName);
+    await Promise.all([refreshLibrary(), refreshHooksMcp()]);
+    toast.success(`Plugin "${pluginName}" removed from library`);
+  }
 
   return {
     // state
     library,
     bundles,
     installed,
+    hooks,
+    mcp,
+    installedHooks,
     projectPath,
     // computed
     installedKeys,
@@ -101,10 +151,14 @@ export const useAppStore = defineStore("app", () => {
     refreshLibrary,
     refreshBundles,
     refreshInstalled,
+    refreshHooksMcp,
     refreshAll,
     pickProject,
     applyBundle,
     toggleAsset,
     cleanProject,
+    toggleHook,
+    applyMcp,
+    removePlugin,
   };
 });

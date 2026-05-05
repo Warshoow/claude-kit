@@ -5,6 +5,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledHook {
+    pub plugin: String,
+    pub filename: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledAsset {
     pub kind: AssetKind,
     pub name: String,
@@ -155,4 +161,120 @@ pub fn list_installed(project: &Path) -> Vec<InstalledAsset> {
         }
     }
     out
+}
+
+/// Returns the canonical source path if the symlink at `target` points into
+/// our hooks library directory; returns None otherwise.
+fn our_hook_source(target: &Path) -> Option<PathBuf> {
+    let meta = fs::symlink_metadata(target).ok()?;
+    if !meta.file_type().is_symlink() {
+        return None;
+    }
+    let linked = fs::read_link(target).ok()?;
+    let resolved = if linked.is_absolute() {
+        linked
+    } else {
+        target.parent()?.join(linked)
+    };
+    let canonical = fs::canonicalize(&resolved).unwrap_or(resolved);
+    let hooks_lib = fs::canonicalize(library_dir().join("hooks")).ok()?;
+    if canonical.starts_with(&hooks_lib) {
+        Some(canonical)
+    } else {
+        None
+    }
+}
+
+pub fn apply_hook(project: &Path, plugin: &str, filename: &str) -> Result<()> {
+    let source = library_dir().join("hooks").join(plugin).join(filename);
+    let target = project.join(".claude").join("hooks").join(filename);
+
+    if !source.exists() {
+        return Err(anyhow!("hook source missing: {}", source.display()));
+    }
+    fs::create_dir_all(target.parent().unwrap())?;
+
+    if fs::symlink_metadata(&target).is_ok() {
+        if our_hook_source(&target).is_some() {
+            // Already one of ours — nothing to do.
+            return Ok(());
+        }
+        return Err(anyhow!(
+            "target exists and is not our symlink: {}",
+            target.display()
+        ));
+    }
+    make_symlink(&source, &target)?;
+    Ok(())
+}
+
+pub fn remove_hook(project: &Path, filename: &str) -> Result<bool> {
+    let target = project.join(".claude").join("hooks").join(filename);
+    if our_hook_source(&target).is_some() {
+        fs::remove_file(&target)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+pub fn list_installed_hooks(project: &Path) -> Vec<InstalledHook> {
+    let hooks_dir = project.join(".claude").join("hooks");
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(&hooks_dir) else {
+        return out;
+    };
+    let hooks_lib = match fs::canonicalize(library_dir().join("hooks")) {
+        Ok(p) => p,
+        Err(_) => return out,
+    };
+    for entry in entries.flatten() {
+        let filename = entry.file_name().to_string_lossy().to_string();
+        if let Some(source) = our_hook_source(&entry.path()) {
+            // source is a canonical path: <hooks_lib>/<plugin>/<filename>
+            if let Some(plugin_dir) = source.parent() {
+                if plugin_dir.parent().map(|p| p == hooks_lib).unwrap_or(false) {
+                    if let Some(plugin) = plugin_dir.file_name() {
+                        out.push(InstalledHook {
+                            plugin: plugin.to_string_lossy().to_string(),
+                            filename,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn apply_mcp(project: &Path, plugin: &str) -> Result<()> {
+    let mcp_src = library_dir().join("mcp").join(format!("{plugin}.json"));
+    if !mcp_src.exists() {
+        return Err(anyhow!("MCP source missing: {}", mcp_src.display()));
+    }
+
+    let src_content = fs::read_to_string(&mcp_src)?;
+    let src_json: serde_json::Value = serde_json::from_str(&src_content)?;
+    let src_servers = src_json
+        .as_object()
+        .ok_or_else(|| anyhow!("MCP file must be a JSON object"))?;
+
+    let project_mcp = project.join(".claude").join("mcp.json");
+    fs::create_dir_all(project_mcp.parent().unwrap())?;
+
+    let mut existing: serde_json::Map<String, serde_json::Value> = if project_mcp.exists() {
+        let content = fs::read_to_string(&project_mcp)?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+
+    for (key, value) in src_servers {
+        // Skip keys already present — never overwrite user config.
+        existing.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+
+    let output = serde_json::to_string_pretty(&serde_json::Value::Object(existing))?;
+    fs::write(&project_mcp, output)?;
+    Ok(())
 }

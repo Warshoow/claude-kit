@@ -32,7 +32,7 @@ export const useMarketplaceStore = defineStore("marketplace", () => {
         importingPlugin.value = plugin.name;
         try {
           const res = await api.importMarketplacePlugin(plugin);
-          await appStore.refreshLibrary();
+          await Promise.all([appStore.refreshLibrary(), appStore.refreshHooksMcp()]);
           toast.success(
             `Imported ${res.imported.length} from ${plugin.name}`,
             res.skipped.length

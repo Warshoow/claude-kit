@@ -27,7 +27,7 @@ const props = defineProps<{ name: string }>();
 const router = useRouter();
 const store = useAppStore();
 const marketplaceStore = useMarketplaceStore();
-const { library } = storeToRefs(store);
+const { library, hooks, mcp } = storeToRefs(store);
 const {
   marketplace,
   marketplaceLoading,
@@ -43,7 +43,7 @@ const isImporting = computed(() => importingPlugin.value === props.name);
 
 const status = computed(() =>
   plugin.value
-    ? pluginImportStatus(library.value, marketplace.value?.name, plugin.value)
+    ? pluginImportStatus(library.value, marketplace.value?.name, plugin.value, hooks.value, mcp.value)
     : { kind: "not-imported" as const }
 );
 

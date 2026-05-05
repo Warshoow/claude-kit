@@ -22,7 +22,7 @@ import {
 const store = useAppStore();
 const marketplaceStore = useMarketplaceStore();
 const router = useRouter();
-const { library } = storeToRefs(store);
+const { library, hooks, mcp } = storeToRefs(store);
 const {
   marketplace,
   marketplaceLoading,
@@ -31,7 +31,7 @@ const {
 } = storeToRefs(marketplaceStore);
 
 function statusOf(p: Plugin): PluginImportStatus {
-  return pluginImportStatus(library.value, marketplace.value?.name, p);
+  return pluginImportStatus(library.value, marketplace.value?.name, p, hooks.value, mcp.value);
 }
 
 function statusTitle(p: Plugin): string | undefined {

@@ -35,6 +35,24 @@ export interface InstalledAsset {
   name: string;
 }
 
+export interface HookEntry {
+  plugin: string;
+  filename: string;
+  path: string;
+  content: string;
+}
+
+export interface McpEntry {
+  plugin: string;
+  path: string;
+  servers: Record<string, unknown>;
+}
+
+export interface InstalledHook {
+  plugin: string;
+  filename: string;
+}
+
 export interface ApplyResult {
   ok: string[];
   errors: string[];

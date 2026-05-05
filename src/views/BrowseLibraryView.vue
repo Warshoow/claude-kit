@@ -38,13 +38,15 @@ interface PluginGroup {
   marketplace: string | null;
   assets: Asset[];
   counts: Record<AssetKind, number>;
+  hookCount: number;
+  hasMcp: boolean;
   isLocal: boolean;
 }
 
 const store = useAppStore();
 const pluginStore = usePluginStore();
 const router = useRouter();
-const { library } = storeToRefs(store);
+const { library, hooks, mcp } = storeToRefs(store);
 
 const query = ref("");
 const newAssetOpen = ref(false);
@@ -62,12 +64,51 @@ const groups = computed<PluginGroup[]>(() => {
         marketplace: a.origin?.marketplace ?? null,
         assets: [],
         counts: { skills: 0, commands: 0, agents: 0 },
+        hookCount: 0,
+        hasMcp: false,
         isLocal: !a.origin,
       };
       buckets.set(key, g);
     }
     g.assets.push(a);
     g.counts[a.kind]++;
+  }
+
+  // Attach hook / MCP counts to the matching plugin bucket.
+  for (const h of hooks.value) {
+    let g = buckets.get(h.plugin);
+    if (!g) {
+      // Plugin only has hooks, no assets yet — create a bucket for it.
+      g = {
+        key: h.plugin,
+        name: h.plugin,
+        marketplace: null,
+        assets: [],
+        counts: { skills: 0, commands: 0, agents: 0 },
+        hookCount: 0,
+        hasMcp: false,
+        isLocal: false,
+      };
+      buckets.set(h.plugin, g);
+    }
+    g.hookCount++;
+  }
+  for (const m of mcp.value) {
+    let g = buckets.get(m.plugin);
+    if (!g) {
+      g = {
+        key: m.plugin,
+        name: m.plugin,
+        marketplace: null,
+        assets: [],
+        counts: { skills: 0, commands: 0, agents: 0 },
+        hookCount: 0,
+        hasMcp: false,
+        isLocal: false,
+      };
+      buckets.set(m.plugin, g);
+    }
+    g.hasMcp = true;
   }
 
   return Array.from(buckets.values()).sort((a, b) => {
@@ -254,6 +295,16 @@ function openPlugin(g: PluginGroup) {
                   variant="secondary"
                   class="font-mono text-[10px]"
                 >{{ g.counts.agents }} agent{{ g.counts.agents === 1 ? "" : "s" }}</Badge>
+                <Badge
+                  v-if="g.hookCount > 0"
+                  variant="outline"
+                  class="font-mono text-[10px]"
+                >{{ g.hookCount }} hook{{ g.hookCount === 1 ? "" : "s" }}</Badge>
+                <Badge
+                  v-if="g.hasMcp"
+                  variant="outline"
+                  class="font-mono text-[10px]"
+                >MCP</Badge>
               </div>
             </article>
           </div>

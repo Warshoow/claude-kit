@@ -1,4 +1,4 @@
-import type { Asset, Origin, Plugin } from "./types";
+import type { Asset, HookEntry, McpEntry, Origin, Plugin } from "./types";
 
 /**
  * Find the most-recent Origin record (by `imported_at`) for a given
@@ -43,14 +43,28 @@ export type PluginImportStatus =
 export function pluginImportStatus(
   library: Asset[],
   marketplaceName: string | undefined,
-  plugin: Plugin
+  plugin: Plugin,
+  hooks: HookEntry[] = [],
+  mcp: McpEntry[] = [],
 ): PluginImportStatus {
   if (!marketplaceName) return { kind: "not-imported" };
+
   const o = findLatestOrigin(library, marketplaceName, plugin.name);
-  if (!o) return { kind: "not-imported" };
-  if (!o.version) return { kind: "unknown" };
-  if (!plugin.version) return { kind: "current", importedVersion: o.version };
-  return o.version === plugin.version
-    ? { kind: "current", importedVersion: o.version }
-    : { kind: "update", importedVersion: o.version, currentVersion: plugin.version };
+  if (o) {
+    if (!o.version) return { kind: "unknown" };
+    if (!plugin.version) return { kind: "current", importedVersion: o.version };
+    return o.version === plugin.version
+      ? { kind: "current", importedVersion: o.version }
+      : { kind: "update", importedVersion: o.version, currentVersion: plugin.version };
+  }
+
+  // No tracked assets — but hooks or mcp entries from this plugin count too.
+  const hasHooks = hooks.some((h) => h.plugin === plugin.name);
+  const hasMcp = mcp.some((m) => m.plugin === plugin.name);
+  if (hasHooks || hasMcp) {
+    // Hooks/MCP have no version tracking, treat like a version-less import.
+    return { kind: "current" };
+  }
+
+  return { kind: "not-imported" };
 }

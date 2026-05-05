@@ -4,9 +4,9 @@ mod marketplace;
 mod project;
 
 use bundles::{Bundle, BundleRef};
-use library::{ensure_layout, scan_all, Asset, AssetKind, ImportResult};
+use library::{ensure_layout, scan_all, Asset, AssetKind, HookEntry, ImportResult, McpEntry};
 use marketplace::{Marketplace, Plugin};
-use project::InstalledAsset;
+use project::{InstalledAsset, InstalledHook};
 use std::path::PathBuf;
 
 #[tauri::command]
@@ -138,6 +138,42 @@ fn fetch_plugin_readme(plugin: Plugin) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn list_hooks_cmd() -> Vec<HookEntry> {
+    library::list_hooks()
+}
+
+#[tauri::command]
+fn list_mcp_cmd() -> Vec<McpEntry> {
+    library::list_mcp()
+}
+
+#[tauri::command]
+fn apply_hook_cmd(project_path: String, plugin: String, filename: String) -> Result<(), String> {
+    project::apply_hook(&PathBuf::from(project_path), &plugin, &filename)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_hook_cmd(project_path: String, filename: String) -> Result<bool, String> {
+    project::remove_hook(&PathBuf::from(project_path), &filename).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_installed_hooks_cmd(project_path: String) -> Vec<InstalledHook> {
+    project::list_installed_hooks(&PathBuf::from(project_path))
+}
+
+#[tauri::command]
+fn apply_mcp_cmd(project_path: String, plugin: String) -> Result<(), String> {
+    project::apply_mcp(&PathBuf::from(project_path), &plugin).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_plugin_cmd(plugin_name: String) -> Result<usize, String> {
+    library::remove_plugin(&plugin_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -197,6 +233,13 @@ fn main() {
             list_marketplace_plugins,
             import_marketplace_plugin,
             fetch_plugin_readme,
+            list_hooks_cmd,
+            list_mcp_cmd,
+            apply_hook_cmd,
+            remove_hook_cmd,
+            list_installed_hooks_cmd,
+            apply_mcp_cmd,
+            remove_plugin_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

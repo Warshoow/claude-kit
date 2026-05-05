@@ -17,7 +17,7 @@ export const usePluginStore = defineStore("plugin", () => {
     if (typeof selected !== "string") return;
     try {
       const res = await api.importPlugin(selected);
-      await appStore.refreshLibrary();
+      await Promise.all([appStore.refreshLibrary(), appStore.refreshHooksMcp()]);
       toast.success(
         `Imported ${res.imported.length}`,
         res.skipped.length

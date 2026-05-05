@@ -17,6 +17,7 @@
     "@tailwindcss/vite": "^4.2.4",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@types/dompurify": "^3.0.5",
     "@vueuse/core": "^14.3.0",
     "class-variance-authority": "^0.7.1",

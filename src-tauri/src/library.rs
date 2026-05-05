@@ -127,6 +127,80 @@ pub fn bundles_dir() -> PathBuf {
     kit_home().join("bundles")
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookEntry {
+    pub plugin: String,
+    pub filename: String,
+    pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpEntry {
+    pub plugin: String,
+    pub path: String,
+    pub servers: serde_json::Value,
+}
+
+pub fn list_hooks() -> Vec<HookEntry> {
+    let hooks_dir = library_dir().join("hooks");
+    let mut out = Vec::new();
+    let Ok(plugins) = fs::read_dir(&hooks_dir) else {
+        return out;
+    };
+    for plugin_entry in plugins.flatten() {
+        if !plugin_entry.path().is_dir() {
+            continue;
+        }
+        let plugin = plugin_entry.file_name().to_string_lossy().to_string();
+        let Ok(files) = fs::read_dir(plugin_entry.path()) else {
+            continue;
+        };
+        for file_entry in files.flatten() {
+            if !file_entry.path().is_file() {
+                continue;
+            }
+            let filename = file_entry.file_name().to_string_lossy().to_string();
+            let content = fs::read_to_string(file_entry.path()).unwrap_or_default();
+            out.push(HookEntry {
+                plugin: plugin.clone(),
+                filename,
+                path: file_entry.path().to_string_lossy().to_string(),
+                content,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.plugin.cmp(&b.plugin).then(a.filename.cmp(&b.filename)));
+    out
+}
+
+pub fn list_mcp() -> Vec<McpEntry> {
+    let mcp_dir = library_dir().join("mcp");
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(&mcp_dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !path.is_file() || !name.ends_with(".json") {
+            continue;
+        }
+        let plugin = name.trim_end_matches(".json").to_string();
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let servers: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::Value::Object(Default::default()));
+        out.push(McpEntry {
+            plugin,
+            path: path.to_string_lossy().to_string(),
+            servers,
+        });
+    }
+    out.sort_by(|a, b| a.plugin.cmp(&b.plugin));
+    out
+}
+
 pub fn ensure_layout() -> Result<()> {
     for kind in AssetKind::all() {
         fs::create_dir_all(library_dir().join(kind.as_str()))?;
@@ -399,9 +473,11 @@ pub fn import_from_plugin(source: &Path) -> Result<ImportResult> {
         }
     }
 
-    // --- mcp.json ---
-    let mcp_src = source.join("mcp.json");
-    if mcp_src.is_file() {
+    // --- mcp.json / .mcp.json ---
+    // The official marketplace uses ".mcp.json" (dot-prefixed); local plugins
+    // may use the plain "mcp.json" name. We check both.
+    let mcp_src_candidates = [source.join(".mcp.json"), source.join("mcp.json")];
+    if let Some(mcp_src) = mcp_src_candidates.iter().find(|p| p.is_file()) {
         let plugin_folder = source
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -410,10 +486,57 @@ pub fn import_from_plugin(source: &Path) -> Result<ImportResult> {
         if mcp_dst.exists() {
             skipped.push(format!("mcp/{plugin_folder}.json"));
         } else {
-            fs::copy(&mcp_src, &mcp_dst)?;
+            fs::copy(mcp_src, &mcp_dst)?;
             imported.push(format!("mcp/{plugin_folder}.json"));
         }
     }
 
     Ok(ImportResult { imported, skipped })
+}
+
+/// Remove all library entries that originated from `plugin_name`:
+/// assets tracked in `.origins.json`, the hooks subfolder, and the mcp JSON.
+/// Returns the count of removed items.
+pub fn remove_plugin(plugin_name: &str) -> Result<usize> {
+    let mut count = 0usize;
+    let origins = read_origins();
+    let mut new_origins = origins.clone();
+
+    for kind in AssetKind::all() {
+        let dir = library_dir().join(kind.as_str());
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let bare = match kind {
+                AssetKind::Skills => file_name.clone(),
+                _ => file_name.trim_end_matches(".md").to_string(),
+            };
+            let key = format!("{}:{}", kind.as_str(), bare);
+            if origins.get(&key).map(|o| o.plugin == plugin_name).unwrap_or(false) {
+                if path.is_dir() {
+                    fs::remove_dir_all(&path)?;
+                } else {
+                    fs::remove_file(&path)?;
+                }
+                new_origins.remove(&key);
+                count += 1;
+            }
+        }
+    }
+    write_origins(&new_origins)?;
+
+    let hooks_dir = library_dir().join("hooks").join(plugin_name);
+    if hooks_dir.exists() {
+        fs::remove_dir_all(&hooks_dir)?;
+        count += 1;
+    }
+
+    let mcp_file = library_dir().join("mcp").join(format!("{plugin_name}.json"));
+    if mcp_file.exists() {
+        fs::remove_file(&mcp_file)?;
+        count += 1;
+    }
+
+    Ok(count)
 }

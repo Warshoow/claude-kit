@@ -5,9 +5,12 @@ import type {
   ApplyResult,
   Bundle,
   BundleRef,
+  HookEntry,
   ImportResult,
   InstalledAsset,
+  InstalledHook,
   Marketplace,
+  McpEntry,
   Plugin,
 } from "./types";
 
@@ -44,4 +47,16 @@ export const api = {
     invoke<ImportResult>("import_marketplace_plugin", { plugin }),
   fetchPluginReadme: (plugin: Plugin) =>
     invoke<string | null>("fetch_plugin_readme", { plugin }),
+  listHooks: () => invoke<HookEntry[]>("list_hooks_cmd"),
+  listMcp: () => invoke<McpEntry[]>("list_mcp_cmd"),
+  applyHook: (projectPath: string, plugin: string, filename: string) =>
+    invoke<void>("apply_hook_cmd", { projectPath, plugin, filename }),
+  removeHook: (projectPath: string, filename: string) =>
+    invoke<boolean>("remove_hook_cmd", { projectPath, filename }),
+  listInstalledHooks: (projectPath: string) =>
+    invoke<InstalledHook[]>("list_installed_hooks_cmd", { projectPath }),
+  applyMcp: (projectPath: string, plugin: string) =>
+    invoke<void>("apply_mcp_cmd", { projectPath, plugin }),
+  removePlugin: (pluginName: string) =>
+    invoke<number>("remove_plugin_cmd", { pluginName }),
 };

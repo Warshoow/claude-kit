@@ -122,10 +122,21 @@ pub fn generate_asset(
     if prompt.trim().is_empty() {
         return Err(anyhow!("prompt is empty"));
     }
+    let system = build_system_prompt(kind);
+    let user = build_user_prompt(prompt, context);
+    let raw = generate_text(&system, &user)?;
+    Ok(strip_code_fences(&raw))
+}
+
+/// Lower-level entry point used by the asset generator AND the bundle
+/// harmonizer. Picks the configured backend and returns the raw model
+/// output. Callers post-process (strip code fences, parse delimiters…)
+/// according to what they expect.
+pub fn generate_text(system: &str, user: &str) -> Result<String> {
     let status = ai_status();
     match status.mode.as_str() {
-        "claude-cli" => generate_via_cli(kind, prompt, context),
-        "api" => generate_via_api(kind, prompt, context),
+        "claude-cli" => generate_via_cli_raw(system, user),
+        "api" => generate_via_api_raw(system, user),
         _ => Err(anyhow!(
             "No AI backend available. Configure one in Settings."
         )),
@@ -170,23 +181,17 @@ fn strip_code_fences(s: &str) -> String {
     trimmed.to_string()
 }
 
-fn generate_via_cli(
-    kind: AssetKind,
-    prompt: &str,
-    context: Option<&str>,
-) -> Result<String> {
+fn generate_via_cli_raw(system: &str, user: &str) -> Result<String> {
     let cli = detect_claude_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
-    let system = build_system_prompt(kind);
-    let user = build_user_prompt(prompt, context);
 
     // `claude -p "<user>" --append-system-prompt "<system>" --output-format json`
     // We use --append-system-prompt rather than --system-prompt so we don't
     // wipe Claude Code's default behaviour entirely.
     let output = Command::new(&cli)
         .arg("-p")
-        .arg(&user)
+        .arg(user)
         .arg("--append-system-prompt")
-        .arg(&system)
+        .arg(system)
         .arg("--output-format")
         .arg("json")
         .output()
@@ -209,14 +214,10 @@ fn generate_via_cli(
         .ok_or_else(|| anyhow!("claude CLI JSON response missing `result` field"))?
         .to_string();
 
-    Ok(strip_code_fences(&content))
+    Ok(content)
 }
 
-fn generate_via_api(
-    kind: AssetKind,
-    prompt: &str,
-    context: Option<&str>,
-) -> Result<String> {
+fn generate_via_api_raw(system: &str, user: &str) -> Result<String> {
     let s = read_settings().ai;
     let base = s
         .api_base_url
@@ -237,9 +238,6 @@ fn generate_via_api(
         .filter(|x| !x.is_empty())
         .unwrap_or("claude-sonnet-4-5")
         .to_string();
-
-    let system = build_system_prompt(kind);
-    let user = build_user_prompt(prompt, context);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(120))
@@ -273,5 +271,5 @@ fn generate_via_api(
         .ok_or_else(|| anyhow!("API response missing choices[0].message.content"))?
         .to_string();
 
-    Ok(strip_code_fences(&content))
+    Ok(content)
 }

@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    path: "/bundles/:name/harmonize",
+    name: "bundle-harmonize",
+    component: () => import("@/views/BundleHarmonizeView.vue"),
+    props: true,
+  },
+  {
     path: "/browse",
     name: "browse",
     component: () => import("@/views/BrowseView.vue"),

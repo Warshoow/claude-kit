@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   Plus,
+  Sparkles,
   Trash2,
   Check,
   Search,
@@ -219,6 +220,16 @@ function kindLabel(kind: AssetKind): string {
               :disabled="!projectPath || bundle.assets.length === 0"
               @click="store.applyBundle(bundle.name, true)"
             >Apply (replace)</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="bundle.assets.length === 0"
+              title="Rewrite the bundle's assets via AI to make tone, terminology and structure consistent"
+              @click="router.push({ name: 'bundle-harmonize', params: { name: bundle.name } })"
+            >
+              <Sparkles />
+              Harmonize
+            </Button>
             <Button
               variant="ghost"
               size="sm"

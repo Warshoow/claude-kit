@@ -118,3 +118,15 @@ export interface AiStatus {
   /** One-line user-facing description of the current state. */
   message: string;
 }
+
+/**
+ * One asset's before/after pair returned by the bundle harmonizer.
+ * `proposed` may equal `original` when the model decided no changes
+ * were needed.
+ */
+export interface HarmonizationResult {
+  kind: AssetKind;
+  name: string;
+  original: string;
+  proposed: string;
+}

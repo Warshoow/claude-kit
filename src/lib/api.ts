@@ -6,6 +6,7 @@ import type {
   ApplyResult,
   Bundle,
   BundleRef,
+  HarmonizationResult,
   HookEntry,
   ImportResult,
   InstalledAsset,
@@ -68,4 +69,9 @@ export const api = {
   readSettings: () => invoke<Settings>("read_settings_cmd"),
   writeSettings: (settings: Settings) =>
     invoke<void>("write_settings_cmd", { settings }),
+  harmonizeBundle: (bundleName: string, instruction?: string) =>
+    invoke<HarmonizationResult[]>("harmonize_bundle_cmd", {
+      bundleName,
+      instruction,
+    }),
 };

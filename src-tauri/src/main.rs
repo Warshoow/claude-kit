@@ -1,5 +1,6 @@
 mod ai;
 mod bundles;
+mod harmonize;
 mod library;
 mod marketplace;
 mod project;
@@ -200,6 +201,15 @@ fn write_settings_cmd(settings: settings::Settings) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn harmonize_bundle_cmd(
+    bundle_name: String,
+    instruction: Option<String>,
+) -> Result<Vec<harmonize::HarmonizationResult>, String> {
+    harmonize::harmonize_bundle(&bundle_name, instruction.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -270,6 +280,7 @@ fn main() {
             ai_generate,
             read_settings_cmd,
             write_settings_cmd,
+            harmonize_bundle_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

@@ -39,6 +39,13 @@ Bouton "Generate with AI" dans l'éditeur d'assets. L'user décrit ce qu'il veut
 **2. Recommandeur de bundle**
 L'user décrit son besoin ("setup TypeScript backend avec tests et git hooks"), l'IA choisit quels plugins importer depuis la marketplace et quels assets regrouper en bundle. Valeur principale : découverte dans un catalogue qui grossit vite.
 
+**3. Harmonisateur de bundle**
+Bouton "Harmonize" sur un bundle. Les assets viennent de plugins différents, écrits par différents auteurs avec différents tons, conventions, structures de fichiers, vocabulaire. L'IA réécrit pour rendre l'ensemble cohérent (ton, terminologie, format de frontmatter, références croisées entre assets) tout en préservant le sens de chaque asset.
+
+UX critique : **diff review obligatoire**, style git côte à côte ou unifié — lignes ajoutées en vert, retirées en rouge — avec accept/reject par hunk ou par asset entier. Sinon, risque de casser sémantiquement un asset sans s'en rendre compte. Implique aussi un système de revert/historique par asset (pas en place aujourd'hui).
+
+Bonus : pourrait surfacer les conflits / doublons entre assets ("ces deux skills font la même chose, garder lequel ?").
+
 ### Backend IA — deux modes, détection automatique
 
 **Mode Claude Code CLI (prioritaire, zéro config)**
@@ -61,7 +68,7 @@ Pas de liste de providers figée — l'user entre la base URL et la clé, ça co
 
 - Détection auto au lancement : si `claude` trouvé → *"Using Claude Code (your subscription)"*
 - Sinon → formulaire : base URL + API key
-- Ordre d'implémentation recommandé : générateur d'assets d'abord (scope réduit, teste le plumbing), recommandeur de bundle ensuite
+- Ordre d'implémentation recommandé : (1) générateur d'assets — scope réduit, teste le plumbing IA. (2) Harmonisateur — réutilise la même infra, ajoute la review diff. (3) Recommandeur — le plus complexe car nécessite de raisonner sur le catalogue marketplace.
 
 ---
 
@@ -78,3 +85,4 @@ Aujourd'hui l'app est câblée sur `claude-plugins-official` (Anthropic). L'idé
 ## Long terme
 
 - CLI `ck` — interface ligne de commande pour les mêmes opérations (apply bundle, import plugin, etc.)
+- Site web statique de présentation, hébergé via GitHub Pages (mono-repo, dossier `website/`). Stack pressentie : **VitePress** (Vue-based, matches la stack du projet, réutilise shadcn-vue + Tailwind). Alternative : Astro pour un design plus custom. Custom domain optionnel (config DNS CNAME). Sert de landing + showcase + lien vers les releases.

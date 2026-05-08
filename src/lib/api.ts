@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AiStatus,
   Asset,
   AssetKind,
   ApplyResult,
@@ -12,6 +13,7 @@ import type {
   Marketplace,
   McpEntry,
   Plugin,
+  Settings,
 } from "./types";
 
 export const api = {
@@ -59,4 +61,11 @@ export const api = {
     invoke<void>("apply_mcp_cmd", { projectPath, plugin }),
   removePlugin: (pluginName: string) =>
     invoke<number>("remove_plugin_cmd", { pluginName }),
+  // ── AI / settings ─────────────────────────────────────────────
+  aiStatus: () => invoke<AiStatus>("ai_status_cmd"),
+  aiGenerate: (kind: AssetKind, prompt: string, context?: string) =>
+    invoke<string>("ai_generate", { kind, prompt, context }),
+  readSettings: () => invoke<Settings>("read_settings_cmd"),
+  writeSettings: (settings: Settings) =>
+    invoke<void>("write_settings_cmd", { settings }),
 };

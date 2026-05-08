@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Folder, Minus, Square, X, Copy, Sun, Moon } from "lucide-vue-next";
+import { Folder, Minus, Square, X, Copy, Sun, Moon, Settings as SettingsIcon } from "lucide-vue-next";
 import appIcon from "@/assets/icon.png";
 import { useTheme } from "@/composables/useTheme";
 import { useAppStore } from "@/stores/app";
@@ -148,6 +148,16 @@ onMounted(() => {
         <Folder class="size-3 shrink-0" />
         <span v-if="projectPath" class="truncate font-mono">{{ projectPath }}</span>
         <span v-else class="italic">No project selected</span>
+      </button>
+
+      <button
+        type="button"
+        class="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        :class="route.name === 'settings' ? 'bg-secondary text-foreground' : ''"
+        title="Settings"
+        @click="router.push({ name: 'settings' })"
+      >
+        <SettingsIcon class="size-3.5" />
       </button>
 
       <button

@@ -5,11 +5,13 @@ import { storeToRefs } from "pinia";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import {
+  AlertCircle,
   ChevronLeft,
   Eye,
   Loader2,
   Pencil,
   Save,
+  Sparkles,
 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { EditorView, keymap } from "@codemirror/view";
@@ -18,21 +20,34 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { markdown } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { useAppStore } from "@/stores/app";
+import { useAiStore } from "@/stores/ai";
 import { api } from "@/lib/api";
 import type { AssetKind } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@/components/ui/toggle-group";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const props = defineProps<{ kind: string; name: string }>();
 
 const router = useRouter();
 const store = useAppStore();
+const aiStore = useAiStore();
 const { library } = storeToRefs(store);
+const { status: aiStatus, generating } = storeToRefs(aiStore);
 
 // Validate the route param against the known asset kinds.
 const VALID_KINDS = ["skills", "commands", "agents"] as const;
@@ -204,6 +219,59 @@ function kindLabel(k: string): string {
   if (k === "agents") return "Agent";
   return k;
 }
+
+// ── AI generation modal ──────────────────────────────────────────
+type GenerateMode = "refine" | "replace";
+
+const generateOpen = ref(false);
+const generatePrompt = ref("");
+const generateMode = ref<GenerateMode>("refine");
+
+const aiReady = computed(
+  () => aiStatus.value !== null && aiStatus.value.mode !== "none"
+);
+
+// "Substantial" = anything beyond the empty frontmatter scaffold we ship
+// for new assets. Below this threshold we default to Replace because
+// there's effectively nothing worth refining.
+const hasSubstantialContent = computed(() => {
+  const stripped = content.value
+    .replace(/^---[\s\S]*?---\s*/m, "")
+    .replace(/^#\s+\S.*$/m, "")
+    .trim();
+  return stripped.length > 20;
+});
+
+function openGenerate() {
+  generatePrompt.value = "";
+  generateMode.value = hasSubstantialContent.value ? "refine" : "replace";
+  generateOpen.value = true;
+  aiStore.refreshStatus();
+}
+
+async function submitGenerate() {
+  if (!kindSafe.value || !aiReady.value || generating.value) return;
+  const prompt = generatePrompt.value.trim();
+  if (!prompt) return;
+
+  const context = generateMode.value === "refine" ? content.value : undefined;
+  const result = await aiStore.generateAsset(kindSafe.value, prompt, context);
+  if (!result) return;
+
+  // Drop into edit mode so the user can review what landed before saving.
+  // The CodeMirror history makes Cmd-Z available if the result is wrong.
+  content.value = result;
+  if (viewMode.value !== "edit") viewMode.value = "edit";
+  generateOpen.value = false;
+  toast.success("Content generated", {
+    description: "Review the diff in the editor before saving.",
+  });
+}
+
+function goToSettingsFromDialog() {
+  generateOpen.value = false;
+  router.push({ name: "settings" });
+}
 </script>
 
 <style scoped>
@@ -264,22 +332,28 @@ function kindLabel(k: string): string {
           >{{ libraryAsset.description }}</p>
         </div>
 
-        <ToggleGroup
-          type="single"
-          :model-value="viewMode"
-          @update:model-value="(v) => v && (viewMode = v as ViewMode)"
-          variant="outline"
-          size="sm"
-        >
-          <ToggleGroupItem value="preview">
-            <Eye class="size-3.5" />
-            Preview
-          </ToggleGroupItem>
-          <ToggleGroupItem value="edit">
-            <Pencil class="size-3.5" />
-            Edit
-          </ToggleGroupItem>
-        </ToggleGroup>
+        <div class="flex shrink-0 items-center gap-2">
+          <Button size="sm" variant="outline" @click="openGenerate">
+            <Sparkles />
+            Generate with AI
+          </Button>
+          <ToggleGroup
+            type="single"
+            :model-value="viewMode"
+            @update:model-value="(v) => v && (viewMode = v as ViewMode)"
+            variant="outline"
+            size="sm"
+          >
+            <ToggleGroupItem value="preview">
+              <Eye class="size-3.5" />
+              Preview
+            </ToggleGroupItem>
+            <ToggleGroupItem value="edit">
+              <Pencil class="size-3.5" />
+              Edit
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
     </div>
 
@@ -342,5 +416,103 @@ function kindLabel(k: string): string {
         {{ saving ? "Saving…" : "Save" }}
       </Button>
     </div>
+
+    <!-- AI generation dialog -->
+    <Dialog v-model:open="generateOpen">
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <Sparkles class="size-4" />
+            Generate with AI
+          </DialogTitle>
+          <DialogDescription>
+            Describe what you want. The result lands in the editor — nothing
+            is saved until you click Save.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form class="space-y-4" @submit.prevent="submitGenerate">
+          <div class="space-y-1.5">
+            <Label>Strategy</Label>
+            <ToggleGroup
+              type="single"
+              :model-value="generateMode"
+              @update:model-value="(v) => v && (generateMode = v as GenerateMode)"
+              variant="outline"
+              class="w-full"
+              :disabled="!hasSubstantialContent"
+            >
+              <ToggleGroupItem
+                value="refine"
+                class="flex-1"
+                :disabled="!hasSubstantialContent"
+              >Refine current content</ToggleGroupItem>
+              <ToggleGroupItem value="replace" class="flex-1">
+                Replace from scratch
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <p class="text-[11px] text-muted-foreground">
+              <template v-if="generateMode === 'refine'">
+                The current content is sent as context. Use this to tweak,
+                expand, or restructure what's there.
+              </template>
+              <template v-else>
+                Ignores the current content and writes from scratch based
+                on your prompt only.
+              </template>
+            </p>
+          </div>
+
+          <div class="space-y-1.5">
+            <Label for="ai-prompt">Prompt</Label>
+            <Textarea
+              id="ai-prompt"
+              v-model="generatePrompt"
+              rows="5"
+              :placeholder="
+                generateMode === 'refine'
+                  ? 'e.g. Make it more concise, add a section on edge cases.'
+                  : 'e.g. A skill that helps refactor Python code to follow PEP 8.'
+              "
+              autofocus
+            />
+          </div>
+
+          <div
+            v-if="!aiReady"
+            class="flex items-start gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] text-amber-700 dark:text-amber-300"
+          >
+            <AlertCircle class="mt-0.5 size-3.5 shrink-0" />
+            <div class="flex-1 space-y-1">
+              <div>{{ aiStatus?.message ?? "AI backend not detected." }}</div>
+              <button
+                type="button"
+                class="font-medium underline underline-offset-2"
+                @click="goToSettingsFromDialog"
+              >Open Settings</button>
+            </div>
+          </div>
+          <p v-else class="text-[11px] text-muted-foreground">
+            {{ aiStatus?.message }}
+          </p>
+        </form>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            :disabled="generating"
+            @click="generateOpen = false"
+          >Cancel</Button>
+          <Button
+            :disabled="!aiReady || !generatePrompt.trim() || generating"
+            @click="submitGenerate"
+          >
+            <Loader2 v-if="generating" class="animate-spin" />
+            <Sparkles v-else />
+            {{ generating ? "Generating…" : "Generate" }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

@@ -93,3 +93,28 @@ export type PluginSourceObject =
   | { source: "url"; url: string; sha?: string }
   | { source: "git-subdir"; url: string; path: string; ref?: string; sha?: string; branch?: string }
   | { source: "github"; repo: string; commit?: string };
+
+// AI / settings — mirror src-tauri/src/{ai,settings}.rs
+export type AiMode = "auto" | "claude-cli" | "api";
+
+export type AiBackendMode = "claude-cli" | "api" | "none";
+
+export interface AiSettings {
+  mode: AiMode;
+  api_base_url?: string;
+  api_key?: string;
+  api_model?: string;
+}
+
+export interface Settings {
+  ai: AiSettings;
+}
+
+export interface AiStatus {
+  /** Effective backend in use right now: "claude-cli" | "api" | "none". */
+  mode: AiBackendMode;
+  claude_cli_path?: string;
+  api_configured: boolean;
+  /** One-line user-facing description of the current state. */
+  message: string;
+}

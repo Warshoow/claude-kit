@@ -1,7 +1,9 @@
+mod ai;
 mod bundles;
 mod library;
 mod marketplace;
 mod project;
+mod settings;
 
 use bundles::{Bundle, BundleRef};
 use library::{ensure_layout, scan_all, Asset, AssetKind, HookEntry, ImportResult, McpEntry};
@@ -174,6 +176,30 @@ fn remove_plugin_cmd(plugin_name: String) -> Result<usize, String> {
 }
 
 #[tauri::command]
+fn ai_status_cmd() -> ai::AiStatus {
+    ai::ai_status()
+}
+
+#[tauri::command]
+fn ai_generate(
+    kind: AssetKind,
+    prompt: String,
+    context: Option<String>,
+) -> Result<String, String> {
+    ai::generate_asset(kind, &prompt, context.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_settings_cmd() -> settings::Settings {
+    settings::read_settings()
+}
+
+#[tauri::command]
+fn write_settings_cmd(settings: settings::Settings) -> Result<(), String> {
+    settings::write_settings(&settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -240,6 +266,10 @@ fn main() {
             list_installed_hooks_cmd,
             apply_mcp_cmd,
             remove_plugin_cmd,
+            ai_status_cmd,
+            ai_generate,
+            read_settings_cmd,
+            write_settings_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

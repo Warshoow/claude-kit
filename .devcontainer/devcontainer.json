@@ -21,7 +21,8 @@
         // DX
         "usernamehw.errorlens",
         "fill-labs.dependi",
-        "anthropic.claude-code"
+        "anthropic.claude-code",
+        "mhutchie.git-graph"
 
       ],
       "settings": {

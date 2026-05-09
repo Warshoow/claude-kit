@@ -8,9 +8,8 @@ without the dev tooling running.
 ## TL;DR
 
 ```bash
-# one-time
-npm run tauri icon                    # generate icon variants from src-tauri/icons/icon.png
-# update src-tauri/tauri.conf.json → bundle.icon (see step 1)
+# (one-time, only when you change the source icon)
+npm run tauri icon -- src-tauri/icons/icon.png
 
 # every build
 npm run tauri build                   # 5–15 min the first time, 1–2 min after
@@ -18,36 +17,28 @@ npm run tauri build                   # 5–15 min the first time, 1–2 min aft
 
 Artefacts land in `src-tauri/target/release/bundle/`.
 
-## 1. Prepare the icons (one-time)
+## 1. Regenerating the icons (only when the source changes)
 
-`src-tauri/tauri.conf.json` ships with `bundle.icon: []`. The bundler needs
-real icon files, so:
+The icon variants and the `bundle.icon` array in `tauri.conf.json` are
+already committed. You only need to regenerate them if you replace
+`src-tauri/icons/icon.png` with a new design.
 
 ```bash
-npm run tauri icon
+npm run tauri icon -- src-tauri/icons/icon.png
 ```
 
-This reads `src-tauri/icons/icon.png` (must be 1024×1024, RGBA) and emits
-all the variants the bundler needs: `32x32.png`, `128x128.png`,
-`128x128@2x.png`, `icon.icns` (macOS), `icon.ico` (Windows), plus a stack
-of `Square*Logo.png` files for the Microsoft Store.
+The `--` is required so npm forwards the path to the Tauri CLI (without
+it the CLI looks for `./app-icon.png` in the cwd and errors out).
 
-Then declare the variants in `tauri.conf.json` so the bundler picks them
-up:
+The source PNG **must be 1024×1024 RGBA** at minimum — anything smaller
+and the macOS `.icns` and Microsoft Store `Square*Logo.png` variants
+upscale poorly. The command emits `32x32.png`, `128x128.png`,
+`128x128@2x.png`, `icon.icns`, `icon.ico` and the full Square Logo
+stack into `src-tauri/icons/`.
 
-```json
-"bundle": {
-  "active": true,
-  "targets": "all",
-  "icon": [
-    "icons/32x32.png",
-    "icons/128x128.png",
-    "icons/128x128@2x.png",
-    "icons/icon.icns",
-    "icons/icon.ico"
-  ]
-}
-```
+The `tauri.conf.json` `bundle.icon` array already references the
+generated files, so there's nothing else to wire up — just commit the
+new variants.
 
 ## 2. Pick where to compile
 
@@ -140,9 +131,14 @@ double-click.
 
 ## 6. Troubleshooting
 
-- **`failed to bundle project: ... icon ... not found`** — you forgot
-  step 1. Run `npm run tauri icon` and update `bundle.icon` in
-  `tauri.conf.json`.
+- **`failed to bundle project: ... icon ... not found`** — one of the
+  icon variants referenced in `tauri.conf.json`'s `bundle.icon` array
+  is missing. Regenerate them with
+  `npm run tauri icon -- src-tauri/icons/icon.png`.
+- **`failed to read and decode source image ./app-icon.png`** when
+  running `npm run tauri icon` — you forgot the `--` separator. The
+  Tauri CLI defaults to looking up `./app-icon.png` in the cwd; the
+  `--` tells npm to forward the path argument instead of consuming it.
 - **`linker 'link.exe' not found`** on Windows — MSVC build tools are
   missing or not in PATH. Reinstall via Build Tools for Visual Studio
   with the C++ workload.

@@ -63,7 +63,7 @@ Symlinks are **relative** — they survive if you move the project or the librar
 **Library & plugins**
 - Plugin grid with asset counts (skills, commands, agents, hooks, MCP)
 - Search by plugin name or asset name/description/tag
-- Import from the official marketplace or any local folder
+- Import from any marketplace or local folder, or create assets from scratch with the *+ New* button
 - Automatic update detection: badge shows when a newer version is available
 - View hook file contents inline, browse MCP server configs as JSON
 - Docs button: opens the plugin README fetched from GitHub
@@ -79,9 +79,24 @@ Symlinks are **relative** — they survive if you move the project or the librar
 - Clean all: removes every symlink claude-kit created, leaves hand-written files untouched
 
 **Marketplace**
-- Browses `claude-plugins-official` — 100+ community plugins
+- Bundles plugins from the official `claude-plugins-official` catalog (100+ plugins) by default
+- Add any number of additional marketplaces from Settings — paste a `marketplace.json` URL, the app validates and merges it into the browse grid with a per-plugin source badge
 - Per-plugin status: In Library / Update available / Not imported
 - Works for plugins that only ship MCP configs (like Playwright)
+
+**Plugin updates with hunk-level review**
+- When a marketplace plugin gains a new version, click *Update…* on any *Update available* badge
+- The app downloads the upstream tarball, computes a per-asset diff, and shows a `git`-style review screen — accept or reject each hunk before anything hits disk
+- Local files are never silently overwritten; rejected hunks keep your edits
+- Origins refresh automatically on apply so the badge clears
+
+**AI integration** *(opt-in, configured in Settings)*
+
+Two backends, auto-detected: the local Claude Code CLI (zero-config — uses your existing subscription) or any OpenAI-compatible API endpoint (Anthropic, OpenAI, Ollama, LM Studio, vLLM…).
+
+- **Generate an asset** — describe what you want, the model produces a Claude-Code-shaped file. Available both when creating a new asset and when editing an existing one (with a *Refine* mode that sends current content as context).
+- **Harmonize a bundle** — rewrite every asset of a bundle so it reads like one author wrote it. Per-hunk diff review with accept/reject before any write.
+- **Recommend a bundle** — describe your need, the model picks plugins from the marketplace and assembles a bundle. Per-line checkboxes refine the suggestion.
 
 **MCP support**
 - Import `.mcp.json` from any plugin
@@ -135,11 +150,13 @@ See [`docs/build.md`](docs/build.md) for the full procedure including icon gener
 
 ## Roadmap
 
-See [`docs/roadmap.md`](docs/roadmap.md) — highlights:
+See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. The big features are now in: AI flows (generator, harmonizer, recommender), force-overwrite plugin updates, multiple marketplaces, and a VitePress landing site at `website/`.
 
-- **AI integration** — bundle recommender & asset generator (via Claude Code CLI subprocess or any OpenAI-compatible API/local model)
-- **Multiple marketplace sources** — add community or private marketplaces alongside the official one
-- **CLI tool `ck`** — `ck apply <bundle>` from a project terminal
+What's still to do:
+
+- **CLI tool `ck`** — `ck apply <bundle>` from a project terminal (plan in [`docs/cli-roadmap.md`](docs/cli-roadmap.md))
+- **Streaming** for the AI generator (today the dialog blocks until the full response arrives)
+- **macOS window transparency** — last cosmetic tweak before the first public tag
 
 ## Tech stack
 

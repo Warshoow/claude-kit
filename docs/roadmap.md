@@ -2,6 +2,8 @@
 
 ## Fait ✅
 
+### Foundations
+
 - Fix écran blanc (circular import stores Pinia)
 - Fix fenêtre invisible Linux (`transparent: false`)
 - Icône intégrée + tous les formats générés
@@ -11,78 +13,69 @@
 - Build Linux `.deb` fonctionnel sur Ubuntu WSL
 - Bind mount devcontainer → `~/claude-kit-dist/`
 - Onboarding first-run (WelcomeScreen avec dismiss persisté)
-- Import complet plugins : `hooks/` + `.mcp.json` copiés dans la library
 - CI/CD GitHub Actions : `ci.yml` + `release.yml` (multi-OS sur tag `v*`)
-- Flow complet testé et validé sur WSL
+
+### Library & plugins
+
+- Import complet plugins : `hooks/` + `.mcp.json` copiés dans la library
 - UI Hooks & MCP : list, apply (symlink), viewer contenu, merge project
 - Import status marketplace aware hooks/mcp (plugins mcp-only → "current")
 - Viewer contenu hooks (collapsible), bouton Docs → README, Remove plugin
+- Décomposition plugin-centric de Browse > Library : grid de cartes par plugin + bucket Local pour les assets créés à la main
+- Bouton "+ New" pour créer un skill/command/agent vide directement depuis l'app
+
+### Marketplace
+
+- **Marketplaces multiples** : settings pour ajouter d'autres `marketplace.json` URLs ; UI badge par source dans Browse > Marketplace ; backend valide l'URL via fetch + lit le `name` ; officielle non-supprimable
+- **Détection des updates** : `version` + `git_ref` stockés au moment de l'import ; badge "Update available v1.0 → v1.1" sur les cartes quand divergence
+- **Force-overwrite update flow** : bouton "Update…" → page `/plugins/:name/update` avec preview du diff par asset/hunk + checkboxes accept/reject ; refresh auto des origins après apply pour clear le badge
+
+### Intégration IA
+
+Trois features shipped avec backend dual mode (Claude CLI subprocess + API OpenAI-compatible avec settings UI pour configurer base URL/key/model) :
+
+- **Générateur d'assets** : bouton "Generate with AI" dans l'éditeur + mode "Generate from prompt" dans le NewAssetDialog
+- **Harmoniseur de bundle** : bouton "Harmonize" sur un bundle → page `/bundles/:name/harmonize` avec review per-hunk (accept/reject par bloc de lignes) avant apply
+- **Recommandeur de bundle** : bouton "Recommend (AI)" dans My Bundles → page `/recommend` avec checkboxes per-plugin et per-asset, bundle name/description éditables, validation contre collisions
+
+### Site web
+
+- Site statique landing à `website/` via VitePress 1.6
+- Brand custom (palette orange #F97316, hero gradient, screenshots grid)
+- GitHub Action `pages.yml` qui déploie automatiquement à chaque push touchant `website/**`
 
 ---
 
 ## Court terme — avant publication
 
 - Transparence macOS (cosmétique, dernier moment)
-- README public + pousser sur GitHub + tag `v0.2.0`
+- Tag `v0.3.0` + activation GitHub Pages dans les Settings du repo
 
 ---
 
-## Intégration IA
+## Marketplaces (extension future)
 
-Deux usages distincts, même infra sous-jacente.
+Aujourd'hui : ajout/suppression d'URLs custom, agrégation dans le browse, badge par source. Pistes d'évolution :
 
-### Features
-
-**1. Générateur d'assets**
-Bouton "Generate with AI" dans l'éditeur d'assets. L'user décrit ce qu'il veut en langage naturel, l'IA produit le contenu markdown du skill, command ou agent.
-
-**2. Recommandeur de bundle**
-L'user décrit son besoin ("setup TypeScript backend avec tests et git hooks"), l'IA choisit quels plugins importer depuis la marketplace et quels assets regrouper en bundle. Valeur principale : découverte dans un catalogue qui grossit vite.
-
-**3. Harmonisateur de bundle**
-Bouton "Harmonize" sur un bundle. Les assets viennent de plugins différents, écrits par différents auteurs avec différents tons, conventions, structures de fichiers, vocabulaire. L'IA réécrit pour rendre l'ensemble cohérent (ton, terminologie, format de frontmatter, références croisées entre assets) tout en préservant le sens de chaque asset.
-
-UX critique : **diff review obligatoire**, style git côte à côte ou unifié — lignes ajoutées en vert, retirées en rouge — avec accept/reject par hunk ou par asset entier. Sinon, risque de casser sémantiquement un asset sans s'en rendre compte. Implique aussi un système de revert/historique par asset (pas en place aujourd'hui).
-
-Bonus : pourrait surfacer les conflits / doublons entre assets ("ces deux skills font la même chose, garder lequel ?").
-
-### Backend IA — deux modes, détection automatique
-
-**Mode Claude Code CLI (prioritaire, zéro config)**
-
-Appel subprocess depuis Rust :
-```bash
-claude -p "..." --output-format json
-```
-Tous les users de claude-kit ont `claude` installé par définition. Détection du binaire au lancement (`PATH`, `~/.claude/local/claude`, etc.).
-
-**Mode API key (fallback si `claude` non trouvé)**
-
-Champ dans les settings de l'app. Compatible avec n'importe quel provider via base URL + clé optionnelle :
-- Modèles propriétaires : Anthropic, OpenAI, Google, etc.
-- Modèles locaux / self-hosted / open-source : Ollama (`http://localhost:11434`), LM Studio, vLLM, ou tout serveur compatible OpenAI API
-
-Pas de liste de providers figée — l'user entre la base URL et la clé, ça couvre tout.
-
-### UX settings IA
-
-- Détection auto au lancement : si `claude` trouvé → *"Using Claude Code (your subscription)"*
-- Sinon → formulaire : base URL + API key
-- Ordre d'implémentation recommandé : (1) générateur d'assets — scope réduit, teste le plumbing IA. (2) Harmonisateur — réutilise la même infra, ajoute la review diff. (3) Recommandeur — le plus complexe car nécessite de raisonner sur le catalogue marketplace.
+- Refresh auto périodique des catalogs (TTL côté frontend)
+- Cache disque du dernier marketplace.json pour éviter le refetch au démarrage
+- Marketplaces privées avec auth (header API key)
 
 ---
-
-## Marketplaces multiples
-
-Aujourd'hui l'app est câblée sur `claude-plugins-official` (Anthropic). L'idée : permettre d'ajouter d'autres sources.
-
-- Gestion d'une liste de marketplaces dans les settings (URL du `marketplace.json` + nom d'affichage)
-- La marketplace officielle reste présente par défaut et non supprimable
-- Browse Marketplace affiche les plugins de toutes les sources actives, avec un indicateur d'origine par plugin
-- Origins/import tracking reste cohérent (`marketplace` field dans `.origins.json` identifie déjà la source)
-- Cas d'usage : marketplace communautaire, marketplace privée d'équipe, fork local pour tests
 
 ## Long terme
 
-- CLI `ck` — interface ligne de commande pour les mêmes opérations (apply bundle, import plugin, etc.)
-- Site web statique de présentation, hébergé via GitHub Pages (mono-repo, dossier `website/`). Stack pressentie : **VitePress** (Vue-based, matches la stack du projet, réutilise shadcn-vue + Tailwind). Alternative : Astro pour un design plus custom. Custom domain optionnel (config DNS CNAME). Sert de landing + showcase + lien vers les releases.
+### CLI `ck`
+
+Interface ligne de commande pour les mêmes opérations (apply bundle, import plugin, etc.). Plan complet dans [`cli-roadmap.md`](cli-roadmap.md).
+
+### Affinements IA basés sur les retours
+
+- Streaming de tokens dans le générateur (aujourd'hui blocking)
+- "Discard changes" rapide sur l'éditeur d'asset après une génération qui ne plaît pas (Cmd-Z marche mais c'est pas évident)
+- Surfacer les doublons / conflits entre assets dans l'harmoniseur (option qu'on avait notée à l'époque)
+
+### Customisation hooks d'install
+
+- Aujourd'hui : symlink, point. Pas de hook d'application avant/après apply (ex: lancer `npm install` dans le projet, ajouter une ligne au `.gitignore`, etc.)
+- Faisable via un champ `post_apply: string[]` dans le bundle JSON ou un mécanisme d'extension côté Rust

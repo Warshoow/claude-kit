@@ -24,14 +24,14 @@ pub struct Marketplace {
     pub plugins: Vec<Plugin>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Owner {
     pub name: String,
     #[serde(default)]
     pub email: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plugin {
     pub name: String,
     pub description: String,
@@ -46,7 +46,7 @@ pub struct Plugin {
     pub version: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Author {
     pub name: String,
     #[serde(default)]
@@ -55,14 +55,14 @@ pub struct Author {
 
 // `source` is polymorphic: either a string ("./plugins/foo" — relative subdir of
 // the marketplace repo itself) or a tagged object describing where to fetch from.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PluginSource {
     Inline(String),
     Object(PluginSourceObject),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "source", rename_all = "kebab-case")]
 pub enum PluginSourceObject {
     Url {

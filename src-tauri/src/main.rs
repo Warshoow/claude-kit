@@ -4,6 +4,7 @@ mod harmonize;
 mod library;
 mod marketplace;
 mod project;
+mod recommend;
 mod settings;
 
 use bundles::{Bundle, BundleRef};
@@ -210,6 +211,15 @@ fn harmonize_bundle_cmd(
 }
 
 #[tauri::command]
+fn recommend_bundle_cmd(
+    user_need: String,
+    marketplace_url: Option<String>,
+) -> Result<recommend::RecommendationResult, String> {
+    recommend::recommend_bundle(&user_need, marketplace_url.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -281,6 +291,7 @@ fn main() {
             read_settings_cmd,
             write_settings_cmd,
             harmonize_bundle_cmd,
+            recommend_bundle_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

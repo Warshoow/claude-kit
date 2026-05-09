@@ -23,6 +23,13 @@ const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    // Placed at top-level rather than `/bundles/recommend` to avoid any
+    // shadowing risk against `/bundles/:name`.
+    path: "/recommend",
+    name: "bundle-recommend",
+    component: () => import("@/views/BundleRecommendView.vue"),
+  },
+  {
     path: "/browse",
     name: "browse",
     component: () => import("@/views/BrowseView.vue"),

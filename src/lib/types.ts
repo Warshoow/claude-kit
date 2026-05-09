@@ -130,3 +130,28 @@ export interface HarmonizationResult {
   original: string;
   proposed: string;
 }
+
+// Bundle recommender — mirrors src-tauri/src/recommend.rs
+export interface RecommendedPlugin {
+  name: string;
+  already_imported: boolean;
+  reason: string;
+  /** Re-attached so the frontend can call importMarketplacePlugin without re-fetching. */
+  plugin?: Plugin;
+}
+
+export interface RecommendedAsset {
+  kind: AssetKind;
+  name: string;
+  plugin: string;
+  already_in_library: boolean;
+  reason: string;
+}
+
+export interface RecommendationResult {
+  bundle_name: string;
+  bundle_description?: string;
+  rationale: string;
+  plugins_to_import: RecommendedPlugin[];
+  assets: RecommendedAsset[];
+}

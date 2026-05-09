@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Plus, Package, Boxes, ChevronRight } from "lucide-vue-next";
+import { Plus, Package, Boxes, ChevronRight, Sparkles } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
 import { assetKey } from "@/lib/types";
@@ -74,6 +74,14 @@ function openBundle(name: string) {
       <h2 class="text-sm font-semibold">My Bundles</h2>
       <span class="text-xs text-muted-foreground">{{ bundles.length }}</span>
       <div class="flex-1" />
+      <Button
+        variant="outline"
+        size="sm"
+        @click="router.push({ name: 'bundle-recommend' })"
+      >
+        <Sparkles />
+        Recommend (AI)
+      </Button>
       <Button size="sm" @click="openCreate">
         <Plus />
         Create bundle

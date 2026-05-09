@@ -14,6 +14,7 @@ import type {
   Marketplace,
   McpEntry,
   Plugin,
+  RecommendationResult,
   Settings,
 } from "./types";
 
@@ -73,5 +74,10 @@ export const api = {
     invoke<HarmonizationResult[]>("harmonize_bundle_cmd", {
       bundleName,
       instruction,
+    }),
+  recommendBundle: (userNeed: string, marketplaceUrl?: string) =>
+    invoke<RecommendationResult>("recommend_bundle_cmd", {
+      userNeed,
+      marketplaceUrl,
     }),
 };

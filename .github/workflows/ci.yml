@@ -49,4 +49,9 @@ jobs:
 
       - name: Cargo check
         working-directory: src-tauri
-        run: cargo check
+        # `--no-default-features` disables the `custom-protocol` feature,
+        # whose proc macro otherwise insists on `frontendDist: "../dist"`
+        # existing at compile time. The release workflow builds the
+        # frontend first via tauri-action, so this strict path is still
+        # exercised on tag pushes — CI just keeps the typecheck fast.
+        run: cargo check --no-default-features

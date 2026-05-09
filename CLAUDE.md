@@ -221,10 +221,20 @@ npx vue-tsc --noEmit              # typecheck without building
 For the Rust side specifically:
 
 ```bash
-cd src-tauri && cargo check       # fast type-check
-cd src-tauri && cargo clippy      # lint
-cd src-tauri && cargo test        # network-tagged tests are #[ignore]'d; run with --ignored
+cd src-tauri && cargo check --no-default-features    # fast type-check
+cd src-tauri && cargo clippy --no-default-features   # lint
+cd src-tauri && cargo test  --no-default-features    # network-tagged tests are #[ignore]'d; run with --ignored
 ```
+
+**Why `--no-default-features`?** The default `custom-protocol` feature
+makes Tauri's `generate_context!()` macro validate at compile time that
+`frontendDist: "../dist"` (per `tauri.conf.json`) actually exists. Plain
+`cargo check` therefore fails with `The "frontendDist" configuration is
+set to "../dist" but this path doesn't exist` whenever the frontend
+hasn't been built. The flag skips that check while still type-checking
+all the regular Rust code. The release workflow doesn't need it because
+`tauri-action` runs `npm run tauri build`, which triggers
+`beforeBuildCommand: "npm run build"` and generates `dist/` first.
 
 For the website:
 

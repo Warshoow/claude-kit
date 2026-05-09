@@ -2,8 +2,9 @@ use crate::library::AssetKind;
 use crate::settings::{read_settings, AiMode};
 use anyhow::{anyhow, Result};
 use serde::Serialize;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 // ── Windows-specific subprocess helpers ────────────────────────────
@@ -234,22 +235,49 @@ fn strip_code_fences(s: &str) -> String {
 fn generate_via_cli_raw(system: &str, user: &str) -> Result<String> {
     let cli = detect_claude_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
 
-    // `claude -p "<user>" --append-system-prompt "<system>" --output-format json`
-    // We use --append-system-prompt rather than --system-prompt so we don't
-    // wipe Claude Code's default behaviour entirely. `build_cli_command`
-    // routes through `cmd /C` on Windows when the resolved path is a `.cmd`
-    // shim (npm-installed CLIs), and suppresses the otherwise-flashing
-    // console window on every spawn.
+    // `claude -p --append-system-prompt "<system>" --output-format json` with
+    // the user prompt piped in on stdin. The harmonizer and recommender flows
+    // both produce user prompts in the 5-50 KB range (full bundle contents,
+    // entire marketplace catalog) — putting that on the command line blows
+    // past Windows' CreateProcess limit (32 767 chars, 8 191 when going
+    // through cmd.exe for .cmd shims) and surfaces as the misleading
+    // "filename or extension too long" error 206. Stdin keeps the command
+    // line tiny regardless of how big the prompt grows.
+    //
+    // `build_cli_command` routes through `cmd /C` on Windows when the
+    // resolved path is a `.cmd` shim (npm-installed CLIs), and suppresses
+    // the otherwise-flashing console window on every spawn. We also use
+    // --append-system-prompt rather than --system-prompt so we don't wipe
+    // Claude Code's default behaviour entirely.
     let mut cmd = build_cli_command(&cli);
     cmd.arg("-p")
-        .arg(user)
         .arg("--append-system-prompt")
         .arg(system)
         .arg("--output-format")
-        .arg("json");
-    let output = cmd
-        .output()
+        .arg("json")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
         .map_err(|e| anyhow!("spawn claude CLI: {e}"))?;
+
+    // Feed the user prompt via stdin on a worker thread so we can read
+    // stdout in parallel — claude streams its response as it computes,
+    // and a serial write-then-read could deadlock on a large prompt that
+    // doesn't fit in the OS pipe buffer (typically 64 KB).
+    let user_owned = user.to_string();
+    if let Some(mut stdin) = child.stdin.take() {
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(user_owned.as_bytes());
+            // Dropping stdin closes the pipe so claude knows EOF.
+        });
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| anyhow!("wait on claude CLI: {e}"))?;
 
     if !output.status.success() {
         return Err(anyhow!(

@@ -66,6 +66,12 @@ const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    path: "/plugins/:name/update",
+    name: "plugin-update",
+    component: () => import("@/views/PluginUpdateView.vue"),
+    props: true,
+  },
+  {
     path: "/project",
     name: "project",
     component: () => import("@/views/ProjectView.vue"),

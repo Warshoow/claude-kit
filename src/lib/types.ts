@@ -155,3 +155,38 @@ export interface RecommendationResult {
   plugins_to_import: RecommendedPlugin[];
   assets: RecommendedAsset[];
 }
+
+// Plugin update — mirrors src-tauri/src/update.rs
+export interface AssetPair {
+  kind: AssetKind;
+  name: string;
+  original: string;
+  proposed: string;
+}
+
+export interface NewAssetEntry {
+  kind: AssetKind;
+  name: string;
+  content: string;
+}
+
+export interface UpdatePreview {
+  plugin_name: string;
+  current_version?: string;
+  new_version?: string;
+  current_git_ref?: string;
+  new_git_ref: string;
+  modified: AssetPair[];
+  added: NewAssetEntry[];
+}
+
+export interface AssetWrite {
+  kind: AssetKind;
+  name: string;
+  content: string;
+}
+
+export interface ApplyUpdateResult {
+  written: number;
+  origins_refreshed: number;
+}

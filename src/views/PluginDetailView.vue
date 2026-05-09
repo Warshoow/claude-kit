@@ -263,13 +263,11 @@ function sourceLines(src: PluginSource): SourceLine[] {
             <template v-if="status.kind === 'update'">
               <Button
                 size="sm"
-                :disabled="isImporting"
-                title="Re-pulls the plugin. New files since last import are added; existing files are NOT overwritten yet (coming in a later version)."
-                @click="marketplaceStore.importMarketplacePlugin(plugin)"
+                title="Review the upstream changes hunk-by-hunk before overwriting your local copy."
+                @click="router.push({ name: 'plugin-update', params: { name: plugin.name } })"
               >
-                <Loader2 v-if="isImporting" class="animate-spin" />
-                <ArrowUpCircle v-else />
-                {{ isImporting ? "Updating…" : "Update" }}
+                <ArrowUpCircle />
+                Update…
               </Button>
               <Button size="sm" variant="ghost" @click="viewInLibrary">
                 View in library

@@ -267,12 +267,11 @@ onMounted(() => marketplaceStore.loadMarketplace());
             <template v-if="statusOf(p).kind === 'update'">
               <Button
                 size="sm"
-                :disabled="!!importingPlugin"
-                title="Re-pulls the plugin. New files since last import are added; existing files are NOT overwritten yet (coming in a later version)."
-                @click.stop="marketplaceStore.importMarketplacePlugin(p)"
+                title="Review the upstream changes hunk-by-hunk before overwriting your local copy."
+                @click.stop="router.push({ name: 'plugin-update', params: { name: p.name } })"
               >
                 <ArrowUpCircle />
-                {{ importingPlugin === p.name ? "Updating…" : "Update" }}
+                Update…
               </Button>
               <Button
                 variant="ghost"

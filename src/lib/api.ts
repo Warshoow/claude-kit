@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AiStatus,
+  ApplyResult,
+  ApplyUpdateResult,
   Asset,
   AssetKind,
-  ApplyResult,
+  AssetWrite,
   Bundle,
   BundleRef,
   HarmonizationResult,
@@ -16,6 +18,7 @@ import type {
   Plugin,
   RecommendationResult,
   Settings,
+  UpdatePreview,
 } from "./types";
 
 export const api = {
@@ -79,5 +82,24 @@ export const api = {
     invoke<RecommendationResult>("recommend_bundle_cmd", {
       userNeed,
       marketplaceUrl,
+    }),
+  previewPluginUpdate: (plugin: Plugin, marketplaceName?: string) =>
+    invoke<UpdatePreview>("preview_plugin_update_cmd", {
+      plugin,
+      marketplaceName,
+    }),
+  applyPluginUpdate: (
+    pluginName: string,
+    newGitRef: string,
+    writes: AssetWrite[],
+    newVersion?: string,
+    marketplaceName?: string,
+  ) =>
+    invoke<ApplyUpdateResult>("apply_plugin_update_cmd", {
+      pluginName,
+      marketplaceName,
+      newVersion,
+      newGitRef,
+      writes,
     }),
 };

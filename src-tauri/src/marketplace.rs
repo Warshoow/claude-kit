@@ -2,6 +2,7 @@ use crate::library::{self, AssetKind, ImportResult, Origin};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -219,7 +220,20 @@ fn parse_kind_name(entry: &str) -> Option<(AssetKind, String)> {
     Some((kind, bare))
 }
 
-pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportResult> {
+/// Hold the temp dir alongside the path so the directory stays alive as
+/// long as the caller wants to read from it. Dropping `Extraction`
+/// auto-cleans the underlying tempdir.
+pub struct Extraction {
+    pub plugin_root: PathBuf,
+    pub git_ref: String,
+    // Kept for the Drop side-effect.
+    _temp: tempfile::TempDir,
+}
+
+/// Fetch and extract a plugin's tarball without touching the library.
+/// Used by both `import_plugin` (which then copies into the library) and
+/// the update preview flow (which only reads upstream contents).
+pub fn download_and_extract(plugin: &Plugin) -> Result<Extraction> {
     let resolved = resolve_source(&plugin.source)?;
 
     // Download tarball into memory. Plugins are small (a few hundred KB after
@@ -234,7 +248,6 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
         .error_for_status()?
         .bytes()?;
 
-    // Extract gzipped tar to a temp dir (auto-cleaned when `temp` is dropped).
     let temp = tempfile::tempdir()?;
     let gz = flate2::read::GzDecoder::new(&bytes[..]);
     let mut archive = tar::Archive::new(gz);
@@ -267,7 +280,16 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
         ));
     }
 
-    let result = library::import_from_plugin(&plugin_root)?;
+    Ok(Extraction {
+        plugin_root,
+        git_ref: resolved.git_ref,
+        _temp: temp,
+    })
+}
+
+pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportResult> {
+    let extraction = download_and_extract(plugin)?;
+    let result = library::import_from_plugin(&extraction.plugin_root)?;
 
     // Tag freshly-imported assets with their origin. Failures here don't roll
     // back the import — the assets are on disk; missing the origin trace is a
@@ -282,7 +304,7 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
             plugin: plugin.name.clone(),
             imported_at: imported_at.clone(),
             version: plugin.version.clone(),
-            git_ref: Some(resolved.git_ref.clone()),
+            git_ref: Some(extraction.git_ref.clone()),
         };
         let _ = library::set_origin(kind, &name, origin);
     }

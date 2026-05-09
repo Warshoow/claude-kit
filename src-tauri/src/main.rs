@@ -6,6 +6,7 @@ mod marketplace;
 mod project;
 mod recommend;
 mod settings;
+mod update;
 
 use bundles::{Bundle, BundleRef};
 use library::{ensure_layout, scan_all, Asset, AssetKind, HookEntry, ImportResult, McpEntry};
@@ -220,6 +221,28 @@ fn recommend_bundle_cmd(
 }
 
 #[tauri::command]
+fn preview_plugin_update_cmd(
+    plugin: Plugin,
+    marketplace_name: Option<String>,
+) -> Result<update::UpdatePreview, String> {
+    let name = marketplace_name.unwrap_or_else(|| "claude-plugins-official".to_string());
+    update::preview_update(&plugin, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn apply_plugin_update_cmd(
+    plugin_name: String,
+    marketplace_name: Option<String>,
+    new_version: Option<String>,
+    new_git_ref: String,
+    writes: Vec<update::AssetWrite>,
+) -> Result<update::ApplyUpdateResult, String> {
+    let market = marketplace_name.unwrap_or_else(|| "claude-plugins-official".to_string());
+    update::apply_update(&plugin_name, &market, new_version, new_git_ref, writes)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn clean_project(project_path: String) -> Result<usize, String> {
     let project = PathBuf::from(project_path);
     let installed = project::list_installed(&project);
@@ -292,6 +315,8 @@ fn main() {
             write_settings_cmd,
             harmonize_bundle_cmd,
             recommend_bundle_cmd,
+            preview_plugin_update_cmd,
+            apply_plugin_update_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

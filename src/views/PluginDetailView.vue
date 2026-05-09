@@ -29,21 +29,28 @@ const store = useAppStore();
 const marketplaceStore = useMarketplaceStore();
 const { library, hooks, mcp } = storeToRefs(store);
 const {
-  marketplace,
+  allPlugins,
   marketplaceLoading,
   importingPlugin,
 } = storeToRefs(marketplaceStore);
 
-const plugin = computed<Plugin | null>(
-  () =>
-    marketplace.value?.plugins.find((p) => p.name === props.name) ?? null
+// With multiple marketplaces in play, the route is /plugins/:name and
+// we have to figure out which catalog this plugin belongs to. We pick
+// the first match across all catalogs — collisions on plugin names
+// across marketplaces are rare; if/when they happen we'd need a
+// disambiguating query param.
+const entry = computed(() =>
+  allPlugins.value.find((e) => e.plugin.name === props.name) ?? null
 );
+
+const plugin = computed<Plugin | null>(() => entry.value?.plugin ?? null);
+const sourceName = computed<string | undefined>(() => entry.value?.source.name);
 
 const isImporting = computed(() => importingPlugin.value === props.name);
 
 const status = computed(() =>
   plugin.value
-    ? pluginImportStatus(library.value, marketplace.value?.name, plugin.value, hooks.value, mcp.value)
+    ? pluginImportStatus(library.value, sourceName.value, plugin.value, hooks.value, mcp.value)
     : { kind: "not-imported" as const }
 );
 
@@ -54,7 +61,7 @@ const isImported = computed(() => status.value.kind !== "not-imported");
 const importedAt = computed<string | null>(() => {
   let latest: string | null = null;
   for (const a of library.value) {
-    if (a.origin?.plugin === props.name && a.origin.marketplace === marketplace.value?.name) {
+    if (a.origin?.plugin === props.name && a.origin.marketplace === sourceName.value) {
       if (!latest || a.origin.imported_at > latest) latest = a.origin.imported_at;
     }
   }
@@ -111,7 +118,7 @@ const renderedReadme = computed<string>(() => {
 // Make sure the marketplace data is in memory; if the user lands here via a
 // direct URL refresh, marketplaceStore.loadMarketplace fetches it once.
 onMounted(async () => {
-  if (!marketplace.value) await marketplaceStore.loadMarketplace();
+  if (!allPlugins.value.length) await marketplaceStore.loadMarketplace();
   await loadReadme();
 });
 
@@ -169,11 +176,11 @@ function sourceLines(src: PluginSource): SourceLine[] {
   <div class="flex h-full flex-col overflow-hidden">
     <!-- Loading marketplace state -->
     <div
-      v-if="!marketplace && marketplaceLoading"
+      v-if="!plugin && marketplaceLoading"
       class="flex h-full items-center justify-center text-sm text-muted-foreground"
     >
       <Loader2 class="mr-2 size-4 animate-spin" />
-      Loading marketplace…
+      Loading marketplaces…
     </div>
 
     <!-- Not found -->
@@ -207,7 +214,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0 flex-1">
             <div class="mb-1 text-[11px] font-medium text-muted-foreground">
-              Marketplace · <span class="font-mono">{{ marketplace?.name }}</span>
+              Marketplace · <span class="font-mono">{{ sourceName ?? "?" }}</span>
             </div>
             <div class="flex items-center gap-2">
               <h1 class="truncate text-lg font-semibold">{{ plugin.name }}</h1>
@@ -283,7 +290,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
                 variant="ghost"
                 :disabled="isImporting"
                 title="Re-pull the plugin (any new files since last import will be added; existing files are kept)."
-                @click="marketplaceStore.importMarketplacePlugin(plugin)"
+                @click="marketplaceStore.importMarketplacePlugin(plugin, sourceName)"
               >
                 <Loader2 v-if="isImporting" class="animate-spin" />
                 <Download v-else />
@@ -294,7 +301,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
               v-else
               size="sm"
               :disabled="isImporting"
-              @click="marketplaceStore.importMarketplacePlugin(plugin)"
+              @click="marketplaceStore.importMarketplacePlugin(plugin, sourceName)"
             >
               <Loader2 v-if="isImporting" class="animate-spin" />
               <Download v-else />

@@ -1,4 +1,5 @@
 use crate::library::{self, AssetKind, ImportResult, Origin};
+use crate::settings::{read_settings, write_settings, MarketplaceSource, OFFICIAL_MARKETPLACE_URL};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -7,8 +8,7 @@ use std::time::Duration;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-pub const DEFAULT_MARKETPLACE_URL: &str =
-    "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json";
+pub const DEFAULT_MARKETPLACE_URL: &str = OFFICIAL_MARKETPLACE_URL;
 
 // Repo that hosts the official marketplace.json. Inline `source` strings
 // (e.g. "./plugins/foo") are resolved relative to a tarball of this repo.
@@ -97,6 +97,68 @@ pub fn fetch_marketplace(url: &str) -> Result<Marketplace> {
     let resp = client.get(url).send()?.error_for_status()?;
     let m: Marketplace = resp.json()?;
     Ok(m)
+}
+
+// ── Marketplace source registry ──────────────────────────────────
+//
+// The user's settings carry a list of marketplaces. The official one
+// is built-in and can't be removed. Adding a marketplace fetches its
+// JSON to confirm it's valid and to read its self-declared name.
+
+pub fn list_sources() -> Vec<MarketplaceSource> {
+    read_settings().marketplaces
+}
+
+pub fn add_source(url: &str) -> Result<MarketplaceSource> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err(anyhow!("URL is empty"));
+    }
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(anyhow!("URL must start with http:// or https://"));
+    }
+
+    let mut s = read_settings();
+    if s.marketplaces.iter().any(|m| m.url == url) {
+        return Err(anyhow!("this marketplace is already registered"));
+    }
+
+    // Validate by fetching — refuses non-marketplace URLs early instead
+    // of letting them sit in settings until the user notices the empty
+    // catalog later.
+    let fetched = fetch_marketplace(url)
+        .map_err(|e| anyhow!("couldn't fetch marketplace at that URL: {e}"))?;
+
+    if s.marketplaces.iter().any(|m| m.name == fetched.name) {
+        return Err(anyhow!(
+            "a marketplace named '{}' is already registered",
+            fetched.name
+        ));
+    }
+
+    let entry = MarketplaceSource {
+        name: fetched.name,
+        url: url.to_string(),
+        builtin: false,
+    };
+    s.marketplaces.push(entry.clone());
+    write_settings(&s)?;
+    Ok(entry)
+}
+
+pub fn remove_source(url: &str) -> Result<()> {
+    let mut s = read_settings();
+    let Some(pos) = s.marketplaces.iter().position(|m| m.url == url) else {
+        return Err(anyhow!("marketplace not found"));
+    };
+    if s.marketplaces[pos].builtin {
+        return Err(anyhow!(
+            "the official marketplace can't be removed"
+        ));
+    }
+    s.marketplaces.remove(pos);
+    write_settings(&s)?;
+    Ok(())
 }
 
 struct ResolvedRef {

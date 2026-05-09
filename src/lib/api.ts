@@ -14,6 +14,7 @@ import type {
   InstalledAsset,
   InstalledHook,
   Marketplace,
+  MarketplaceSource,
   McpEntry,
   Plugin,
   RecommendationResult,
@@ -50,8 +51,8 @@ export const api = {
     invoke<void>("create_asset", { kind, name, description }),
   listMarketplacePlugins: (url?: string) =>
     invoke<Marketplace>("list_marketplace_plugins", { url }),
-  importMarketplacePlugin: (plugin: Plugin) =>
-    invoke<ImportResult>("import_marketplace_plugin", { plugin }),
+  importMarketplacePlugin: (plugin: Plugin, marketplaceName?: string) =>
+    invoke<ImportResult>("import_marketplace_plugin", { plugin, marketplaceName }),
   fetchPluginReadme: (plugin: Plugin) =>
     invoke<string | null>("fetch_plugin_readme", { plugin }),
   listHooks: () => invoke<HookEntry[]>("list_hooks_cmd"),
@@ -102,4 +103,11 @@ export const api = {
       newGitRef,
       writes,
     }),
+  // ── Marketplace sources (the user's list of marketplaces) ──────
+  listMarketplaceSources: () =>
+    invoke<MarketplaceSource[]>("list_marketplace_sources_cmd"),
+  addMarketplaceSource: (url: string) =>
+    invoke<MarketplaceSource>("add_marketplace_source_cmd", { url }),
+  removeMarketplaceSource: (url: string) =>
+    invoke<void>("remove_marketplace_source_cmd", { url }),
 };

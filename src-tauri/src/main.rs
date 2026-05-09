@@ -129,6 +129,21 @@ fn list_marketplace_plugins(url: Option<String>) -> Result<Marketplace, String> 
 }
 
 #[tauri::command]
+fn list_marketplace_sources_cmd() -> Vec<settings::MarketplaceSource> {
+    marketplace::list_sources()
+}
+
+#[tauri::command]
+fn add_marketplace_source_cmd(url: String) -> Result<settings::MarketplaceSource, String> {
+    marketplace::add_source(&url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_marketplace_source_cmd(url: String) -> Result<(), String> {
+    marketplace::remove_source(&url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn import_marketplace_plugin(
     plugin: Plugin,
     marketplace_name: Option<String>,
@@ -317,6 +332,9 @@ fn main() {
             recommend_bundle_cmd,
             preview_plugin_update_cmd,
             apply_plugin_update_cmd,
+            list_marketplace_sources_cmd,
+            add_marketplace_source_cmd,
+            remove_marketplace_source_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running claude-kit");

@@ -6,12 +6,19 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
+  ExternalLink,
+  Lock,
+  Plus,
   Save,
   Sparkles,
+  Store,
   Terminal,
+  Trash2,
 } from "lucide-vue-next";
 import { useAiStore } from "@/stores/ai";
+import { useMarketplaceStore } from "@/stores/marketplace";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,11 +37,33 @@ import { Separator } from "@/components/ui/separator";
 import { ref } from "vue";
 
 const aiStore = useAiStore();
+const marketplaceStore = useMarketplaceStore();
 const { settings, status, loading, generating } = storeToRefs(aiStore);
+const { sources: marketplaceSources } = storeToRefs(marketplaceStore);
 
 // Reveal toggle so the user can confirm what they typed without
 // leaving the API key in plain view by default.
 const showKey = ref(false);
+
+// Add-marketplace form state.
+const newMarketplaceUrl = ref("");
+const addingMarketplace = ref(false);
+
+async function submitAddMarketplace() {
+  const url = newMarketplaceUrl.value.trim();
+  if (!url || addingMarketplace.value) return;
+  addingMarketplace.value = true;
+  try {
+    const ok = await marketplaceStore.addSource(url);
+    if (ok) newMarketplaceUrl.value = "";
+  } finally {
+    addingMarketplace.value = false;
+  }
+}
+
+async function removeMarketplace(url: string) {
+  await marketplaceStore.removeSource(url);
+}
 
 const showApiFields = computed(
   () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "api"
@@ -55,7 +84,11 @@ async function save() {
 }
 
 onMounted(async () => {
-  await Promise.all([aiStore.loadSettings(), aiStore.refreshStatus()]);
+  await Promise.all([
+    aiStore.loadSettings(),
+    aiStore.refreshStatus(),
+    marketplaceStore.loadSources(),
+  ]);
 });
 </script>
 
@@ -207,6 +240,95 @@ onMounted(async () => {
                 </p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <!-- Marketplaces -->
+        <Card>
+          <CardHeader>
+            <CardTitle class="flex items-center gap-2">
+              <Store class="size-4" />
+              Marketplaces
+            </CardTitle>
+            <CardDescription>
+              Sources for the Browse > Marketplace catalog. Each entry is
+              just a URL to a
+              <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">marketplace.json</code>
+              file. The official Anthropic marketplace is built-in and
+              can't be removed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <!-- Existing marketplaces list -->
+            <div class="space-y-1.5">
+              <div
+                v-for="src in marketplaceSources"
+                :key="src.url"
+                class="flex items-start gap-2 rounded-md border bg-card/40 p-2.5"
+              >
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="truncate text-sm font-medium">{{ src.name }}</span>
+                    <Badge
+                      v-if="src.builtin"
+                      variant="outline"
+                      class="gap-1 border-primary/40 text-[10px] uppercase tracking-wider text-primary"
+                    >
+                      <Lock class="size-2.5" />
+                      Built-in
+                    </Badge>
+                  </div>
+                  <a
+                    :href="src.url"
+                    target="_blank"
+                    rel="noopener"
+                    class="mt-0.5 inline-flex items-center gap-1 break-all font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {{ src.url }}
+                    <ExternalLink class="size-2.5 shrink-0" />
+                  </a>
+                </div>
+                <Button
+                  v-if="!src.builtin"
+                  variant="ghost"
+                  size="sm"
+                  class="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  title="Remove this marketplace"
+                  @click="removeMarketplace(src.url)"
+                >
+                  <Trash2 class="size-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <Separator />
+
+            <!-- Add marketplace form -->
+            <form class="space-y-1.5" @submit.prevent="submitAddMarketplace">
+              <Label for="add-marketplace-url">Add a marketplace</Label>
+              <div class="flex items-start gap-2">
+                <Input
+                  id="add-marketplace-url"
+                  v-model="newMarketplaceUrl"
+                  type="url"
+                  placeholder="https://…/marketplace.json"
+                  class="font-mono text-[12px]"
+                />
+                <Button
+                  :disabled="!newMarketplaceUrl.trim() || addingMarketplace"
+                  @click="submitAddMarketplace"
+                >
+                  <Plus />
+                  {{ addingMarketplace ? "Adding…" : "Add" }}
+                </Button>
+              </div>
+              <p class="text-[11px] text-muted-foreground">
+                The URL is fetched once to read its self-declared
+                <code class="font-mono text-[10.5px]">name</code> field. If it
+                doesn't return a valid marketplace JSON, it's rejected
+                without saving.
+              </p>
+            </form>
           </CardContent>
         </Card>
       </div>

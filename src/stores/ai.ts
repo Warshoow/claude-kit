@@ -11,6 +11,10 @@ const DEFAULT_SETTINGS: Settings = {
     api_key: undefined,
     api_model: undefined,
   },
+  // Backend's read_settings injects the official marketplace if missing,
+  // so this default is only ever used in the brief window before the
+  // first read returns. An empty array is a safe placeholder.
+  marketplaces: [],
 };
 
 export const useAiStore = defineStore("ai", () => {

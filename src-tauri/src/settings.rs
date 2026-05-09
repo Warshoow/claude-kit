@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+/// Display name + URL of the official marketplace. Always present in
+/// the settings list, even on a fresh install.
+pub const OFFICIAL_MARKETPLACE_NAME: &str = "claude-plugins-official";
+pub const OFFICIAL_MARKETPLACE_URL: &str =
+    "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json";
+
 /// On-disk app settings, persisted at `~/.claude-assets/settings.json`.
 /// Adding a new field requires `#[serde(default)]` so existing files
 /// keep parsing after upgrades.
@@ -11,6 +17,32 @@ use std::path::PathBuf;
 pub struct Settings {
     #[serde(default)]
     pub ai: AiSettings,
+    #[serde(default)]
+    pub marketplaces: Vec<MarketplaceSource>,
+}
+
+/// A marketplace the user has registered. The `name` is whatever the
+/// `marketplace.json`'s top-level `name` field said at registration
+/// time — used as the stable identifier (also written into asset
+/// origins).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketplaceSource {
+    pub name: String,
+    pub url: String,
+    /// True for the official entry — refuses removal so the user
+    /// can't accidentally lose access to the canonical catalog.
+    #[serde(default)]
+    pub builtin: bool,
+}
+
+impl MarketplaceSource {
+    pub fn official() -> Self {
+        Self {
+            name: OFFICIAL_MARKETPLACE_NAME.to_string(),
+            url: OFFICIAL_MARKETPLACE_URL.to_string(),
+            builtin: true,
+        }
+    }
 }
 
 /// AI integration config. `mode = "auto"` is the default — the backend
@@ -61,8 +93,24 @@ pub fn settings_path() -> PathBuf {
 
 pub fn read_settings() -> Settings {
     let p = settings_path();
-    let Ok(s) = fs::read_to_string(&p) else { return Settings::default() };
-    serde_json::from_str(&s).unwrap_or_default()
+    let mut s: Settings = match fs::read_to_string(&p) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => Settings::default(),
+    };
+
+    // Migration / invariant: the official marketplace must always be
+    // present, marked as builtin. Old configs predating this field get
+    // it injected on first read; manual edits that drop or downgrade
+    // it get healed transparently.
+    let official = MarketplaceSource::official();
+    match s.marketplaces.iter_mut().find(|m| m.url == official.url) {
+        Some(existing) => {
+            existing.builtin = true;
+            existing.name = official.name.clone();
+        }
+        None => s.marketplaces.insert(0, official),
+    }
+    s
 }
 
 pub fn write_settings(settings: &Settings) -> Result<()> {

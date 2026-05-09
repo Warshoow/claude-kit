@@ -106,8 +106,15 @@ export interface AiSettings {
   api_model?: string;
 }
 
+export interface MarketplaceSource {
+  name: string;
+  url: string;
+  builtin: boolean;
+}
+
 export interface Settings {
   ai: AiSettings;
+  marketplaces: MarketplaceSource[];
 }
 
 export interface AiStatus {

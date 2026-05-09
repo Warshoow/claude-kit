@@ -2,9 +2,54 @@ use crate::library::AssetKind;
 use crate::settings::{read_settings, AiMode};
 use anyhow::{anyhow, Result};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
+
+// ── Windows-specific subprocess helpers ────────────────────────────
+//
+// Tauri release binaries don't have a console parent on Windows, so
+// any subprocess we spawn would otherwise pop a fresh `cmd.exe` window
+// — visible as a flicker every time we shell out. CREATE_NO_WINDOW is
+// the documented way to suppress it.
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(target_os = "windows")]
+fn no_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn no_window(_cmd: &mut Command) {}
+
+/// Build a `Command` to invoke the resolved `claude` binary. On Windows
+/// the npm-installed CLI lands as a `.cmd` shim (a batch wrapper around
+/// node), and `Command::new("foo.cmd")` can't execute it directly —
+/// CreateProcess returns ERROR_FILENAME_EXCED_RANGE (206). The fix is to
+/// route through `cmd /C` for those extensions; native `.exe` paths and
+/// Linux/macOS binaries work as-is.
+fn build_cli_command(cli: &Path) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        let needs_cmd_wrapper = cli
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+            .unwrap_or(false);
+        if needs_cmd_wrapper {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(cli);
+            no_window(&mut cmd);
+            return cmd;
+        }
+    }
+    let mut cmd = Command::new(cli);
+    no_window(&mut cmd);
+    cmd
+}
 
 /// Snapshot of what AI backend is currently usable. Surfaced to the
 /// frontend so we can show the right UI (e.g. disable Generate buttons
@@ -29,8 +74,13 @@ pub struct AiStatus {
 pub fn detect_claude_cli() -> Option<PathBuf> {
     // 1. Standard PATH lookup (works on Linux + macOS via `which`,
     //    Windows ships `where`). Fall through silently on failure.
+    //    `where` returns the *first* match on its own line, which is
+    //    usually the npm shim — exactly what we want.
     let lookup = if cfg!(target_os = "windows") { "where" } else { "which" };
-    if let Ok(out) = Command::new(lookup).arg("claude").output() {
+    let mut lookup_cmd = Command::new(lookup);
+    lookup_cmd.arg("claude");
+    no_window(&mut lookup_cmd);
+    if let Ok(out) = lookup_cmd.output() {
         if out.status.success() {
             let path = String::from_utf8_lossy(&out.stdout)
                 .lines()
@@ -186,14 +236,18 @@ fn generate_via_cli_raw(system: &str, user: &str) -> Result<String> {
 
     // `claude -p "<user>" --append-system-prompt "<system>" --output-format json`
     // We use --append-system-prompt rather than --system-prompt so we don't
-    // wipe Claude Code's default behaviour entirely.
-    let output = Command::new(&cli)
-        .arg("-p")
+    // wipe Claude Code's default behaviour entirely. `build_cli_command`
+    // routes through `cmd /C` on Windows when the resolved path is a `.cmd`
+    // shim (npm-installed CLIs), and suppresses the otherwise-flashing
+    // console window on every spawn.
+    let mut cmd = build_cli_command(&cli);
+    cmd.arg("-p")
         .arg(user)
         .arg("--append-system-prompt")
         .arg(system)
         .arg("--output-format")
-        .arg("json")
+        .arg("json");
+    let output = cmd
         .output()
         .map_err(|e| anyhow!("spawn claude CLI: {e}"))?;
 

@@ -1,3 +1,9 @@
+// Hide the console window on Windows when running the release binary.
+// In debug we keep it so cargo / Tauri logs are visible. Without this,
+// double-clicking the installed .exe on Windows opens both the GUI and
+// a stray cmd window behind it.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod ai;
 mod bundles;
 mod harmonize;

@@ -107,3 +107,45 @@
 .VPFeature .icon {
   font-size: 1.5rem;
 }
+
+/* ============================================================ */
+/* Icon sizing                                                   */
+/* ============================================================ */
+
+/* Hero image — VitePress defaults to ~320px which leaves the orange
+   icon a bit small next to the headline. Bump it across breakpoints. */
+.VPHero .VPImage,
+.VPHero .image-src {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+@media (min-width: 640px) {
+  .VPHero .image-container {
+    width: 360px;
+    height: 360px;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-container {
+    width: 440px;
+    height: 440px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .VPHero .image-container {
+    width: 480px;
+    height: 480px;
+  }
+}
+
+/* Navbar logo — default rendering is ~24px which is hard to read on
+   higher-density displays. Goose it up slightly without affecting the
+   header height. */
+.VPNavBarTitle .logo {
+  width: 32px;
+  height: 32px;
+  margin-right: 0.5rem;
+}

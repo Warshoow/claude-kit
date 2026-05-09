@@ -17,18 +17,23 @@ export default defineConfig({
   ignoreDeadLinks: [/^https?:\/\/github\.com\/Warshoow\/claude-kit\/releases/],
 
   head: [
-    // Provide a `sizes` hint so browsers pick the high-res source when
-    // they're rendering on a hi-DPI display. The 512×512 PNG has plenty
-    // of detail for the 16/32/64-px sizes browsers use in tabs.
+    // Tab favicon — multi-size .ico (16/32) for crisp rendering at the
+    // small sizes browsers actually use in the tab strip. PNG fallback
+    // for any browser that prefers it (most modern ones); both point at
+    // the *cropped tight* variant so the subject fills the canvas.
+    ["link", { rel: "icon", type: "image/x-icon", href: `${base}favicon.ico` }],
     [
       "link",
       {
         rel: "icon",
         type: "image/png",
-        sizes: "512x512",
-        href: `${base}icon.png`,
+        sizes: "any",
+        href: `${base}favicon.png`,
       },
     ],
+    // iOS home-screen icon and social previews use the *padded* full
+    // logo — at those sizes the breathing room around the subject reads
+    // as a deliberate frame, not as wasted space.
     ["link", { rel: "apple-touch-icon", href: `${base}icon.png` }],
     ["meta", { name: "theme-color", content: "#F97316" }],
     ["meta", { property: "og:type", content: "website" }],

@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "claude-kit-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",

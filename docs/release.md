@@ -3,6 +3,10 @@
 Step-by-step guide for cutting a new release. Follow this every time
 you tag a new version — it's short on purpose.
 
+> **One-time setup**: before the first release with auto-update, run
+> the steps in [§ Auto-update — first-time setup](#auto-update--first-time-setup).
+> Skip if already done.
+
 ## TL;DR — the happy path
 
 ```bash
@@ -248,3 +252,116 @@ git push origin master vX.Y.Z
 # → wait 10-15 min
 # → open Releases tab, edit draft, write changelog, click Publish
 ```
+
+## Auto-update — first-time setup
+
+The desktop app uses `tauri-plugin-updater` to pull updates from
+GitHub Releases. On startup it fetches `latest.json` from the
+`/releases/latest/download/` URL, verifies its signature against an
+embedded public key, and if a newer version is available shows a
+toast with an Update button. Clicking downloads the installer,
+verifies it, runs it and relaunches the app.
+
+For this to actually work, three things have to be in place:
+
+1. A signing **key pair** generated locally (the private key never
+   leaves your machine + GitHub Secrets).
+2. The **public key** committed to `tauri.conf.json`.
+3. **GitHub Secrets** configured so the release workflow can sign
+   the artefacts and produce the `latest.json` manifest.
+
+Do this **once**. Subsequent releases just work.
+
+### Step 1 — Generate the key pair
+
+```bash
+# Run from anywhere; writes the keys to ~/.tauri/.
+npm run tauri signer generate -- -w ~/.tauri/claude-kit.key
+```
+
+You'll be prompted for a password (optional but recommended). Two
+files are created:
+
+- `~/.tauri/claude-kit.key` — **private key** (never commit, never
+  push, never share). Used to sign release artefacts.
+- `~/.tauri/claude-kit.key.pub` — public key. Goes into the app
+  bundle so users can verify what they download.
+
+### Step 2 — Embed the public key
+
+Open the public key file and copy its content (a single base64-ish
+string):
+
+```bash
+cat ~/.tauri/claude-kit.key.pub
+```
+
+Paste it into [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json),
+replacing the `PASTE_YOUR_PUBLIC_KEY_HERE` placeholder under
+`plugins.updater.pubkey`. Commit + push that change.
+
+### Step 3 — Add GitHub Secrets
+
+In your GitHub repo settings → Secrets and variables → Actions →
+New repository secret, add:
+
+| Name | Value |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | The **full content** of `~/.tauri/claude-kit.key` (the private one). Yes, paste the whole multi-line file. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password you set in step 1. Skip this secret if you didn't set one. |
+
+The release workflow already references these (see
+[`.github/workflows/release.yml`](../.github/workflows/release.yml)) —
+when they're present, `tauri-action` automatically signs the
+artefacts and uploads `latest.json` next to them on the release.
+When they're absent, the build still succeeds but no manifest is
+produced, so the auto-update path stays dormant.
+
+### Step 4 — Re-tag a release
+
+The release the user is currently on has to be built **with**
+signing in place; otherwise its embedded public key won't match
+anything. So after steps 1-3, cut a new release (any version bump
+works) — that becomes the first version users can update *from*.
+
+```bash
+# All the standard release steps from above, just on the new version.
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+In the workflow logs you should see lines like:
+`Generating Tauri update manifest...` and the release should have
+a `latest.json` asset alongside the `.msi`/`.dmg`/etc.
+
+### Verifying it works
+
+After publishing the next release:
+
+1. On a machine running the **previous** version, launch the app
+2. Within ~3 seconds a toast should appear:
+   *"Update available: vX.Y.Z"* with an Update button
+3. Click → download progress → relaunch on the new version
+
+If the toast never shows up:
+
+- Check the dev console (`Ctrl+Shift+I` on Windows/Linux,
+  `Cmd+Opt+I` on macOS): the updater logs failures via
+  `console.warn`. Common causes:
+  - 404 on `latest.json` → signing wasn't enabled in the release
+  - Signature mismatch → public key in `tauri.conf.json` was
+    pasted wrong or the release used a different private key
+- Check Actions logs of the release run: search for "signing"
+  references and confirm the manifest got uploaded
+
+### What never to do
+
+- **Never commit the private key** (`~/.tauri/claude-kit.key`).
+  If it leaks, anyone can ship malicious updates that the app will
+  trust. Treat it like a code-signing cert.
+- **Never change the embedded public key** without coordination —
+  every existing user becomes unable to receive updates if their
+  installed binary embeds a key that doesn't match the new releases.
+- **Don't skip step 4**. The first release after enabling signing
+  is what bootstraps the chain; users on releases predating it can
+  never auto-update.

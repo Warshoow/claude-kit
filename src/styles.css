@@ -165,6 +165,20 @@ body {
   border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
 }
 
+/* macOS — let the system desktop / wallpaper bleed through the body so
+   the window picks up the standard frosted-glass look from the WebView's
+   transparent surface. The class is applied by App.vue on isMacOS. We
+   don't touch Windows or Linux: their chrome relies on a fully opaque
+   backdrop for the custom topbar + rounded border to look right. */
+.platform-mac body {
+  background: color-mix(in srgb, var(--background) 78%, transparent);
+}
+.platform-mac.dark body {
+  /* Dark mode needs slightly more opacity to keep text legible on
+     bright wallpapers, but still enough translucence to feel native. */
+  background: color-mix(in srgb, var(--background) 84%, transparent);
+}
+
 /* ==========================================================================
    Markdown rendering (used by AssetDetailView preview + PluginDetailView readme)
    ========================================================================== */

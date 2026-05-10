@@ -44,6 +44,12 @@ Trois features shipped avec backend dual mode (Claude CLI subprocess + API OpenA
 - Brand custom (palette orange #F97316, hero gradient, screenshots grid)
 - GitHub Action `pages.yml` qui déploie automatiquement à chaque push touchant `website/**`
 
+### Distribution
+
+- Identifier app proprement nommé (`com.warshoow.claudekit`) — fixed avant la première release publique pour éviter une migration breaking plus tard
+- **Auto-update in-app** via `tauri-plugin-updater` : check au démarrage, toast avec bouton Update, download + verify signature + install + relaunch. Backed par `latest.json` publié sur GitHub Releases. Setup one-time documenté dans [`release.md`](release.md)
+- macOS : transparence du body (78% light / 84% dark) pour laisser passer la vibrancy native quand la decoration Overlay est en place
+
 ---
 
 ## Court terme — avant publication
@@ -64,6 +70,23 @@ Aujourd'hui : ajout/suppression d'URLs custom, agrégation dans le browse, badge
 ---
 
 ## Long terme
+
+### Code signing OS — quand ça vaut le coup
+
+L'auto-update est en place (signature applicative via clé Tauri) mais les binaires **ne sont pas signés OS-level**. Conséquence : à l'installation, les users voient :
+
+- **Windows** : SmartScreen affiche *"Windows protected your PC"* — l'user doit cliquer *More info → Run anyway*. La plupart abandonnent à ce moment-là
+- **macOS** : Gatekeeper bloque le double-click — l'user doit faire clic-droit *Open* ou aller dans Settings > Privacy & Security > Allow anyway
+
+**Quand investir** :
+
+| Signal | Action |
+|---|---|
+| 0 user, ou tous des amis tech | Reste unsigned. Noter dans le README "*click More info → Run anyway* la première fois" |
+| Plusieurs feedbacks "j'ai pas réussi à installer" | Sign Windows (~$200/an cert standard chez Sectigo / DigiCert / Certum) |
+| Tu vises macOS comme cible majeure | Apple Developer Program ($99/an) + notarization. `tauri-action` supporte ça out-of-box via env vars `APPLE_CERTIFICATE`, `APPLE_ID`, etc. |
+
+Total ~**$300/an** pour signer Windows + macOS. À évaluer quand le projet prend.
 
 ### CLI `ck`
 

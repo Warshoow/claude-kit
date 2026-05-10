@@ -290,6 +290,15 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // In-app auto-update: checks the GitHub Releases manifest, prompts
+        // the user, downloads + verifies + installs in place. Fails open
+        // (silently) when no signed manifest is available — that's the
+        // case before the maintainer has set up the signing keys + GitHub
+        // Secrets, see docs/release.md.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Needed by `relaunch()` after the updater downloads + installs
+        // a new version.
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // macOS keeps the native chrome (traffic lights overlaying our
             // topbar via titleBarStyle = Overlay). On Windows and Linux we

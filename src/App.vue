@@ -4,6 +4,9 @@ import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Folder, Minus, Square, X, Copy, Sun, Moon, Settings as SettingsIcon } from "lucide-vue-next";
+import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { toast } from "vue-sonner";
 import appIcon from "@/assets/icon.png";
 import { useTheme } from "@/composables/useTheme";
 import { useAppStore } from "@/stores/app";
@@ -107,7 +110,53 @@ onMounted(() => {
   try {
     getCurrentWindow().onResized(() => refreshMaxState());
   } catch { /* noop */ }
+
+  // Tag the document with the platform so styles.css can grant macOS
+  // a semi-transparent background (vibrancy through the WebView). On
+  // Windows / Linux we keep the body fully opaque — our custom topbar
+  // and rounded border rely on a solid backdrop.
+  if (isMacOS) {
+    document.documentElement.classList.add("platform-mac");
+  }
+
+  // Defer the auto-update check so the UI lands first and the user
+  // doesn't see a popup before the app even rendered. Failure here is
+  // expected before signing keys are wired up — log + move on.
+  setTimeout(checkForAppUpdate, 3000);
 });
+
+async function checkForAppUpdate() {
+  try {
+    const update = await checkForUpdate();
+    if (!update?.available) return;
+
+    toast(`Update available: v${update.version}`, {
+      description: update.body
+        ? update.body.slice(0, 240)
+        : "Click Update to download and install. The app will relaunch.",
+      duration: Infinity,
+      action: {
+        label: "Update",
+        onClick: async () => {
+          const progress = toast.loading(`Downloading v${update.version}…`);
+          try {
+            await update.downloadAndInstall();
+            toast.success("Installed — relaunching", { id: progress });
+            await relaunch();
+          } catch (e) {
+            toast.error("Update failed", {
+              id: progress,
+              description: String(e),
+            });
+          }
+        },
+      },
+    });
+  } catch (e) {
+    // Pre-signing-keys releases hit this every startup — keep it quiet.
+    console.warn("update check failed:", e);
+  }
+}
 </script>
 
 <template>

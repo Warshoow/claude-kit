@@ -57,6 +57,14 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # In-app updater signing. When these secrets are set, tauri-action
+          # signs the release artefacts and uploads a `latest.json` manifest
+          # alongside them — which is what the updater plugin reads. When
+          # the secrets are missing, the build still succeeds but no signed
+          # artefacts are produced; auto-update simply won't work for that
+          # release. See docs/release.md for the one-time setup.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'claude-kit ${{ github.ref_name }}'

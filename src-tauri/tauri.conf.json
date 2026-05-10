@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "claude-kit",
   "version": "0.3.0",
-  "identifier": "dev.claudekit.app",
+  "identifier": "com.warshoow.claudekit",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,5 +38,15 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Warshoow/claude-kit/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3RjYwQzBFODZGRTIzMDgKUldRSUkvNkdEZ3oyZDRrQUQ2eCtSZ3VibldJOUZtdmVET21ERzQ1VU1ud1pTUnhrMVZlMVQ4V0MK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }

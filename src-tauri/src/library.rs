@@ -36,6 +36,14 @@ pub struct Asset {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub origin: Option<Origin>,
+    /// ISO 8601 timestamp of the most recent harmonize-apply that touched
+    /// this asset. `None` means it has never been harmonized; the UI uses
+    /// this to surface a small badge so the user can spot AI-rewritten
+    /// content at a glance. Tracked in `.harmonized.json` (sibling of
+    /// `.origins.json`) rather than mixed into Origin so it works for
+    /// local assets too.
+    #[serde(default)]
+    pub harmonized_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +116,39 @@ pub fn set_origin(kind: AssetKind, name: &str, origin: Origin) -> Result<()> {
     let mut origins = read_origins();
     origins.insert(format!("{}:{}", kind.as_str(), name), origin);
     write_origins(&origins)
+}
+
+// ── Harmonized tracking ─────────────────────────────────────────────
+//
+// Maps `<kind>:<name>` → ISO 8601 timestamp of the last successful
+// harmonize-apply that touched the asset. Stored as a separate JSON
+// file from `.origins.json` because: (1) it's an orthogonal concern
+// (provenance vs editing history), and (2) it has to work for assets
+// that have no Origin (locally-created ones).
+
+pub type HarmonizedMap = HashMap<String, String>;
+
+fn harmonized_path() -> PathBuf {
+    library_dir().join(".harmonized.json")
+}
+
+pub fn read_harmonized() -> HarmonizedMap {
+    let p = harmonized_path();
+    let Ok(s) = fs::read_to_string(&p) else { return HashMap::new() };
+    serde_json::from_str(&s).unwrap_or_default()
+}
+
+fn write_harmonized(map: &HarmonizedMap) -> Result<()> {
+    fs::create_dir_all(library_dir())?;
+    let s = serde_json::to_string_pretty(map)?;
+    fs::write(harmonized_path(), s)?;
+    Ok(())
+}
+
+pub fn mark_harmonized(kind: AssetKind, name: &str, when: &str) -> Result<()> {
+    let mut map = read_harmonized();
+    map.insert(format!("{}:{}", kind.as_str(), name), when.to_string());
+    write_harmonized(&map)
 }
 
 pub fn kit_home() -> PathBuf {
@@ -262,6 +303,7 @@ pub fn scan_kind(kind: AssetKind) -> Vec<Asset> {
                     description,
                     tags,
                     origin: None,
+                    harmonized_at: None,
                 });
             }
             _ => {
@@ -277,6 +319,7 @@ pub fn scan_kind(kind: AssetKind) -> Vec<Asset> {
                     description,
                     tags,
                     origin: None,
+                    harmonized_at: None,
                 });
             }
         }
@@ -288,14 +331,15 @@ pub fn scan_kind(kind: AssetKind) -> Vec<Asset> {
 
 pub fn scan_all() -> Vec<Asset> {
     let origins = read_origins();
+    let harmonized = read_harmonized();
     let mut all: Vec<Asset> = AssetKind::all()
         .iter()
         .flat_map(|k| scan_kind(*k))
         .collect();
     for a in &mut all {
-        a.origin = origins
-            .get(&format!("{}:{}", a.kind.as_str(), a.name))
-            .cloned();
+        let key = format!("{}:{}", a.kind.as_str(), a.name);
+        a.origin = origins.get(&key).cloned();
+        a.harmonized_at = harmonized.get(&key).cloned();
     }
     all
 }

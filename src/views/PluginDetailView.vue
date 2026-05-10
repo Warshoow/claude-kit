@@ -17,6 +17,7 @@ import { useMarketplaceStore } from "@/stores/marketplace";
 import { api } from "@/lib/api";
 import type { Plugin, PluginSource } from "@/lib/types";
 import { pluginImportStatus } from "@/lib/origins";
+import { handleExternalLink } from "@/lib/openExternal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -78,6 +79,74 @@ function formatImportedAt(iso: string): string {
     return iso;
   }
 }
+
+/**
+ * Derive a github.com URL the user can open to inspect the plugin's
+ * source. The four `PluginSource` shapes all map to either a repo root
+ * or a tree URL, depending on whether a subdir is involved.
+ *
+ * For `inline` sources (path relative to the marketplace's own repo)
+ * we extract the host repo from the marketplace's `marketplace.json`
+ * URL — that's the only place the host coordinates are recorded.
+ */
+function githubUrl(p: Plugin, marketplaceUrl: string | undefined): string | null {
+  const src = p.source;
+
+  function fromGithubUrl(rawUrl: string): { owner: string; repo: string } | null {
+    const m = rawUrl
+      .replace(/\.git$/, "")
+      .match(/(?:github\.com[\/:])([^/]+)\/([^/]+)/);
+    return m ? { owner: m[1], repo: m[2] } : null;
+  }
+
+  if (typeof src === "string") {
+    // Inline: path relative to the marketplace repo. Need to extract
+    // the host from the marketplace's raw.githubusercontent.com URL.
+    if (!marketplaceUrl) return null;
+    const m = marketplaceUrl.match(
+      /raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)/
+    );
+    if (!m) return null;
+    const [, owner, repo, ref] = m;
+    const subdir = src.replace(/^\.\//, "").replace(/^\//, "");
+    return subdir
+      ? `https://github.com/${owner}/${repo}/tree/${ref}/${subdir}`
+      : `https://github.com/${owner}/${repo}`;
+  }
+
+  if (src.source === "url") {
+    const parsed = fromGithubUrl(src.url);
+    if (!parsed) return src.url; // not a github URL; let the user open whatever it is
+    return src.sha
+      ? `https://github.com/${parsed.owner}/${parsed.repo}/tree/${src.sha}`
+      : `https://github.com/${parsed.owner}/${parsed.repo}`;
+  }
+
+  if (src.source === "git-subdir") {
+    const parsed = fromGithubUrl(src.url);
+    if (!parsed) return src.url;
+    const ref = src.sha ?? src.ref ?? src.branch ?? "main";
+    return `https://github.com/${parsed.owner}/${parsed.repo}/tree/${ref}/${src.path}`;
+  }
+
+  if (src.source === "github") {
+    return src.commit
+      ? `https://github.com/${src.repo}/tree/${src.commit}`
+      : `https://github.com/${src.repo}`;
+  }
+
+  return null;
+}
+
+const githubLink = computed<string | null>(() => {
+  if (!plugin.value) return null;
+  // Find the marketplace's URL from the catalogs so we can resolve
+  // inline sources to a real github.com URL.
+  const marketplaceUrl = marketplaceStore.catalogs.find(
+    (c) => c.source.name === sourceName.value
+  )?.source.url;
+  return githubUrl(plugin.value, marketplaceUrl);
+});
 
 function viewInLibrary() {
   router.push({
@@ -308,11 +377,23 @@ function sourceLines(src: PluginSource): SourceLine[] {
               {{ isImporting ? "Importing…" : "Import to library" }}
             </Button>
             <a
+              v-if="githubLink"
+              :href="githubLink"
+              target="_blank"
+              rel="noopener"
+              class="inline-flex items-center gap-1.5 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              @click="handleExternalLink"
+            >
+              View on GitHub
+              <ExternalLink class="size-3" />
+            </a>
+            <a
               v-if="plugin.homepage"
               :href="plugin.homepage"
               target="_blank"
               rel="noopener"
               class="inline-flex items-center gap-1.5 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              @click="handleExternalLink"
             >
               Homepage
               <ExternalLink class="size-3" />
@@ -388,7 +469,7 @@ function sourceLines(src: PluginSource): SourceLine[] {
             >
               No readme found in this plugin's source.
             </div>
-            <div v-else class="markdown" v-html="renderedReadme" />
+            <div v-else class="markdown" v-html="renderedReadme" @click="handleExternalLink" />
           </section>
         </div>
       </ScrollArea>

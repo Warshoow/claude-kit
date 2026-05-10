@@ -43,13 +43,33 @@ fn make_symlink(source: &Path, target: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn make_symlink(source: &Path, target: &Path) -> Result<()> {
+    use std::io::ErrorKind;
     use std::os::windows::fs::{symlink_dir, symlink_file};
-    if source.is_dir() {
-        symlink_dir(source, target)?;
+
+    let result = if source.is_dir() {
+        symlink_dir(source, target)
     } else {
-        symlink_file(source, target)?;
+        symlink_file(source, target)
+    };
+
+    // Windows blocks symlink creation for non-admin users by default.
+    // Error 1314 = ERROR_PRIVILEGE_NOT_HELD; PermissionDenied catches the
+    // generic case. Translate this into a message that tells the user how
+    // to actually fix it instead of dumping the OS error code.
+    match result {
+        Ok(()) => Ok(()),
+        Err(e)
+            if e.raw_os_error() == Some(1314)
+                || e.kind() == ErrorKind::PermissionDenied =>
+        {
+            Err(anyhow!(
+                "Windows refused to create the symlink (permission denied). \
+                 Enable Developer Mode in Windows Settings → Privacy & Security → For developers, \
+                 then retry. Alternatively, run claude-kit as administrator."
+            ))
+        }
+        Err(e) => Err(e.into()),
     }
-    Ok(())
 }
 
 /// minimal pathdiff (no external crate)

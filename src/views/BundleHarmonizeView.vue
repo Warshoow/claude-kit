@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { diffLines, type Change } from "diff";
+import { diffLines, diffWordsWithSpace, type Change } from "diff";
 import {
   AlertCircle,
   ArrowLeft,
@@ -203,16 +203,33 @@ async function applyAll() {
   applying.value = true;
   phase.value = "applying";
   let failures = 0;
+  // Track which assets actually got rewritten so we can mark only those
+  // as harmonized — leaving an asset where every hunk was rejected (or
+  // was unchanged to begin with) untagged.
+  const touched: { kind: AssetKind; name: string }[] = [];
   for (const a of assetStates.value) {
     const finalContent = reconstruct(a);
     if (finalContent === a.original) continue; // nothing accepted for this asset
     try {
       await api.writeAsset(a.kind, a.name, finalContent);
+      touched.push({ kind: a.kind, name: a.name });
     } catch (e) {
       failures++;
       console.error(`writeAsset ${a.kind}/${a.name} failed`, e);
     }
   }
+
+  // Stamp the harmonized timestamp on every successfully-written asset.
+  // Failure here is non-fatal — the content is already on disk; missing
+  // the mark just means the badge won't show. We log + continue.
+  if (touched.length) {
+    try {
+      await api.markAssetsHarmonized(touched);
+    } catch (e) {
+      console.warn("mark_assets_harmonized failed:", e);
+    }
+  }
+
   await store.refreshLibrary();
   applying.value = false;
   if (failures > 0) {
@@ -235,6 +252,30 @@ function kindLabel(k: AssetKind): string {
   if (k === "skills") return "Skill";
   if (k === "commands") return "Command";
   return "Agent";
+}
+
+/**
+ * Word-level diff for rendering inside a hunk. The line-level diff
+ * (used to slice the file into hunks) marks an entire line as
+ * removed+added when even a single word changes — which makes typo
+ * fixes look like a complete rewrite. Re-running diff at the word
+ * granularity lets us highlight only the words that actually changed,
+ * with everything else as quiet context.
+ *
+ * Pure additions and pure deletions are returned as a single chunk
+ * — there's no other side to align against, so word-diff would just
+ * recolour everything anyway.
+ */
+function inlineWordDiff(hunk: Hunk): Change[] {
+  const removedText = hunk.removed.join("\n");
+  const addedText = hunk.added.join("\n");
+  if (!removedText) {
+    return [{ value: addedText, added: true, removed: false, count: 0 }];
+  }
+  if (!addedText) {
+    return [{ value: removedText, added: false, removed: true, count: 0 }];
+  }
+  return diffWordsWithSpace(removedText, addedText);
 }
 
 onMounted(async () => {
@@ -465,15 +506,18 @@ onMounted(async () => {
                     <span class="text-emerald-600 dark:text-emerald-400">+{{ hunk.added.length }}</span>
                   </span>
                 </header>
-                <pre class="m-0 overflow-x-auto bg-card font-mono text-[11.5px] leading-snug"><div
-                    v-for="(line, i) in hunk.removed"
-                    :key="`r${i}`"
-                    class="px-3 bg-destructive/10 text-destructive"
-                  ><span class="select-none">- </span>{{ line }}</div><div
-                    v-for="(line, i) in hunk.added"
-                    :key="`a${i}`"
-                    class="px-3 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                  ><span class="select-none">+ </span>{{ line }}</div></pre>
+                <pre class="m-0 overflow-x-auto whitespace-pre-wrap bg-card px-3 py-2 font-mono text-[11.5px] leading-snug"><template
+                    v-for="(part, i) in inlineWordDiff(hunk)"
+                    :key="i"
+                  ><span
+                    v-if="part.added"
+                    class="rounded-sm bg-emerald-500/25 text-emerald-700 dark:text-emerald-300"
+                  >{{ part.value }}</span><span
+                    v-else-if="part.removed"
+                    class="rounded-sm bg-destructive/25 text-destructive line-through opacity-80"
+                  >{{ part.value }}</span><span
+                    v-else
+                  >{{ part.value }}</span></template></pre>
               </div>
             </CardContent>
           </Card>

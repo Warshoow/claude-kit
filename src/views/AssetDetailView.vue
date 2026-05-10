@@ -22,6 +22,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { useAppStore } from "@/stores/app";
 import { useAiStore } from "@/stores/ai";
 import { api } from "@/lib/api";
+import { handleExternalLink } from "@/lib/openExternal";
 import type { AssetKind } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -325,6 +326,15 @@ function goToSettingsFromDialog() {
               class="text-[10px] uppercase tracking-wider"
               :title="`from ${libraryAsset.origin.marketplace} · imported ${libraryAsset.origin.imported_at}`"
             >from {{ libraryAsset.origin.plugin }}</Badge>
+            <Badge
+              v-if="libraryAsset?.harmonized_at"
+              variant="outline"
+              class="gap-1 border-primary/40 text-[10px] uppercase tracking-wider text-primary"
+              :title="`Last harmonized ${libraryAsset.harmonized_at}`"
+            >
+              <Sparkles class="size-2.5" />
+              Harmonized
+            </Badge>
           </div>
           <p
             v-if="libraryAsset?.description"
@@ -381,7 +391,7 @@ function goToSettingsFromDialog() {
       </div>
 
       <ScrollArea v-else-if="viewMode === 'preview'" class="h-full">
-        <div class="markdown px-6 py-5" v-html="renderedMarkdown" />
+        <div class="markdown px-6 py-5" v-html="renderedMarkdown" @click="handleExternalLink" />
       </ScrollArea>
 
       <div

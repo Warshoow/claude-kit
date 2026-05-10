@@ -77,12 +77,29 @@ export const useAppStore = defineStore("app", () => {
     }
     const res = await api.applyBundle(projectPath.value, name, replace);
     await refreshInstalled();
-    toast.success(
-      `Applied ${res.ok.length} asset${res.ok.length === 1 ? "" : "s"}`,
-      res.errors.length
-        ? { description: `${res.errors.length} errors` }
-        : undefined
-    );
+
+    if (res.errors.length === 0) {
+      toast.success(
+        `Applied ${res.ok.length} asset${res.ok.length === 1 ? "" : "s"}`
+      );
+      return;
+    }
+
+    // Surface the actual error message rather than just a count — users
+    // hitting Windows symlink permission errors otherwise have no idea
+    // what to do. We show the first error verbatim (ours include the fix
+    // instructions inline) plus a count if multiple files failed.
+    const firstError = res.errors[0];
+    const overflow =
+      res.errors.length > 1
+        ? ` (and ${res.errors.length - 1} more file${res.errors.length === 2 ? "" : "s"})`
+        : "";
+    const variant = res.ok.length === 0 ? "error" : "warning";
+    const title =
+      res.ok.length === 0
+        ? `Apply failed${overflow}`
+        : `Applied ${res.ok.length}, ${res.errors.length} failed`;
+    toast[variant](title, { description: `${firstError}${overflow}` });
   }
 
   async function toggleAsset(a: Asset) {

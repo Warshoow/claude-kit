@@ -7,6 +7,8 @@ export interface Asset {
   description?: string;
   tags?: string[];
   origin?: Origin;
+  /** ISO 8601 timestamp of the most recent harmonize-apply. */
+  harmonized_at?: string;
 }
 
 export interface Origin {

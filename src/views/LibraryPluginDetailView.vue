@@ -11,6 +11,7 @@ import {
   Package,
   Search,
   Server,
+  Sparkles,
   Terminal,
   Trash2,
   X,
@@ -276,7 +277,21 @@ function back() {
                       </TooltipContent>
                     </Tooltip>
                     <div class="min-w-0 flex-1">
-                      <span class="text-sm font-medium leading-none">{{ a.name }}</span>
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-sm font-medium leading-none">{{ a.name }}</span>
+                        <Tooltip v-if="a.harmonized_at">
+                          <TooltipTrigger as-child>
+                            <Badge
+                              variant="outline"
+                              class="gap-1 border-primary/40 px-1.5 py-0 text-[9px] font-medium uppercase tracking-wider text-primary"
+                            >
+                              <Sparkles class="size-2.5" />
+                              Harmonized
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>Last harmonized {{ a.harmonized_at }}</TooltipContent>
+                        </Tooltip>
+                      </div>
                       <p v-if="a.description" class="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground">
                         {{ a.description }}
                       </p>

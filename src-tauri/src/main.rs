@@ -232,6 +232,29 @@ fn harmonize_bundle_cmd(
         .map_err(|e| e.to_string())
 }
 
+#[derive(serde::Deserialize)]
+struct HarmonizedMark {
+    kind: AssetKind,
+    name: String,
+}
+
+#[tauri::command]
+fn mark_assets_harmonized(items: Vec<HarmonizedMark>) -> Result<usize, String> {
+    use time::format_description::well_known::Rfc3339;
+    use time::OffsetDateTime;
+
+    let now = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_default();
+    let mut count = 0usize;
+    for item in items {
+        library::mark_harmonized(item.kind, &item.name, &now)
+            .map_err(|e| e.to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 #[tauri::command]
 fn recommend_bundle_cmd(
     user_need: String,
@@ -290,6 +313,11 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Opens URLs and files in the host OS — used for "View on GitHub"
+        // buttons and any anchor inside rendered markdown so external
+        // links don't navigate the WebView (which has no back button and
+        // would dead-end the app).
+        .plugin(tauri_plugin_opener::init())
         // In-app auto-update: checks the GitHub Releases manifest, prompts
         // the user, downloads + verifies + installs in place. Fails open
         // (silently) when no signed manifest is available — that's the
@@ -344,6 +372,7 @@ fn main() {
             read_settings_cmd,
             write_settings_cmd,
             harmonize_bundle_cmd,
+            mark_assets_harmonized,
             recommend_bundle_cmd,
             preview_plugin_update_cmd,
             apply_plugin_update_cmd,

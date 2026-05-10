@@ -79,6 +79,8 @@ export const api = {
       bundleName,
       instruction,
     }),
+  markAssetsHarmonized: (items: { kind: AssetKind; name: string }[]) =>
+    invoke<number>("mark_assets_harmonized", { items }),
   recommendBundle: (userNeed: string, marketplaceUrl?: string) =>
     invoke<RecommendationResult>("recommend_bundle_cmd", {
       userNeed,

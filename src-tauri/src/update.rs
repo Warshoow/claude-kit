@@ -80,7 +80,7 @@ pub fn preview_update(plugin: &Plugin, marketplace_name: &str) -> Result<UpdateP
     let current_version = lib_assets[0].origin.as_ref().and_then(|o| o.version.clone());
     let current_git_ref = lib_assets[0].origin.as_ref().and_then(|o| o.git_ref.clone());
 
-    let extraction = download_and_extract(plugin)?;
+    let extraction = download_and_extract(plugin, Some(marketplace_name))?;
     let upstream = read_upstream_assets(&extraction.plugin_root)?;
 
     let mut modified = Vec::new();

@@ -53,8 +53,8 @@ export const api = {
     invoke<Marketplace>("list_marketplace_plugins", { url }),
   importMarketplacePlugin: (plugin: Plugin, marketplaceName?: string) =>
     invoke<ImportResult>("import_marketplace_plugin", { plugin, marketplaceName }),
-  fetchPluginReadme: (plugin: Plugin) =>
-    invoke<string | null>("fetch_plugin_readme", { plugin }),
+  fetchPluginReadme: (plugin: Plugin, marketplaceName?: string) =>
+    invoke<string | null>("fetch_plugin_readme", { plugin, marketplaceName }),
   listHooks: () => invoke<HookEntry[]>("list_hooks_cmd"),
   listMcp: () => invoke<McpEntry[]>("list_mcp_cmd"),
   applyHook: (projectPath: string, plugin: string, filename: string) =>

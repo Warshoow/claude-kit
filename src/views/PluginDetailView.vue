@@ -166,7 +166,7 @@ async function loadReadme() {
   readmeError.value = null;
   readmeLoading.value = true;
   try {
-    readme.value = await api.fetchPluginReadme(plugin.value);
+    readme.value = await api.fetchPluginReadme(plugin.value, sourceName.value);
   } catch (e) {
     readmeError.value = String(e);
   } finally {

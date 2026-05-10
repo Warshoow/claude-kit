@@ -161,6 +161,39 @@ pub fn remove_source(url: &str) -> Result<()> {
     Ok(())
 }
 
+/// For inline plugin sources (paths like `./plugins/foo`), the
+/// "host repo" is the repository that hosts the marketplace itself —
+/// not necessarily Anthropic's official one. We recover it from the
+/// marketplace's `marketplace.json` URL stored in settings, which
+/// always lives at `raw.githubusercontent.com/<owner>/<repo>/<ref>/...`.
+///
+/// Returns `None` if the marketplace isn't registered (shouldn't
+/// happen in normal flow) or if the URL doesn't follow the GitHub raw
+/// pattern (e.g. someone hosts their marketplace on Cloudflare). The
+/// caller falls back to the legacy hardcoded constant in those cases,
+/// preserving the official marketplace's behaviour.
+fn host_repo_for_marketplace(marketplace_name: &str) -> Option<String> {
+    let s = read_settings();
+    let url = s
+        .marketplaces
+        .iter()
+        .find(|m| m.name == marketplace_name)?
+        .url
+        .clone();
+    extract_host_repo(&url)
+}
+
+fn extract_host_repo(raw_url: &str) -> Option<String> {
+    let after = raw_url.strip_prefix("https://raw.githubusercontent.com/")?;
+    let mut iter = after.splitn(3, '/');
+    let owner = iter.next()?;
+    let repo = iter.next()?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some(format!("{owner}/{repo}"))
+}
+
 struct ResolvedRef {
     /// "owner/name"
     repo: String,
@@ -183,13 +216,17 @@ fn parse_github_url(url: &str) -> Result<String> {
     Ok(after.to_string())
 }
 
-fn resolve_source(src: &PluginSource) -> Result<ResolvedRef> {
+fn resolve_source(src: &PluginSource, host_repo: Option<&str>) -> Result<ResolvedRef> {
     match src {
         PluginSource::Inline(path) => {
             // Path is relative to the marketplace's host repo (e.g. "./plugins/foo").
+            // For third-party marketplaces the caller passes the resolved host;
+            // when missing (legacy callers, or unrecognised marketplace URL
+            // shapes) we fall back to the official Anthropic repo so the
+            // pre-multi-marketplace code path keeps working.
             let subdir = path.trim_start_matches("./").trim_start_matches('/').to_string();
             Ok(ResolvedRef {
-                repo: MARKETPLACE_REPO.to_string(),
+                repo: host_repo.unwrap_or(MARKETPLACE_REPO).to_string(),
                 git_ref: DEFAULT_REF.to_string(),
                 subdir,
             })
@@ -248,8 +285,9 @@ fn readme_urls(r: &ResolvedRef) -> Vec<String> {
     urls
 }
 
-pub fn fetch_readme(plugin: &Plugin) -> Result<Option<String>> {
-    let resolved = resolve_source(&plugin.source)?;
+pub fn fetch_readme(plugin: &Plugin, marketplace_name: Option<&str>) -> Result<Option<String>> {
+    let host = marketplace_name.and_then(host_repo_for_marketplace);
+    let resolved = resolve_source(&plugin.source, host.as_deref())?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("claude-kit/0.1")
@@ -295,8 +333,12 @@ pub struct Extraction {
 /// Fetch and extract a plugin's tarball without touching the library.
 /// Used by both `import_plugin` (which then copies into the library) and
 /// the update preview flow (which only reads upstream contents).
-pub fn download_and_extract(plugin: &Plugin) -> Result<Extraction> {
-    let resolved = resolve_source(&plugin.source)?;
+pub fn download_and_extract(
+    plugin: &Plugin,
+    marketplace_name: Option<&str>,
+) -> Result<Extraction> {
+    let host = marketplace_name.and_then(host_repo_for_marketplace);
+    let resolved = resolve_source(&plugin.source, host.as_deref())?;
 
     // Download tarball into memory. Plugins are small (a few hundred KB after
     // gzip in the worst case), so we don't bother streaming to disk.
@@ -350,7 +392,7 @@ pub fn download_and_extract(plugin: &Plugin) -> Result<Extraction> {
 }
 
 pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportResult> {
-    let extraction = download_and_extract(plugin)?;
+    let extraction = download_and_extract(plugin, Some(marketplace_name))?;
     let result = library::import_from_plugin(&extraction.plugin_root)?;
 
     // Tag freshly-imported assets with their origin. Failures here don't roll

@@ -159,8 +159,12 @@ fn import_marketplace_plugin(
 }
 
 #[tauri::command]
-fn fetch_plugin_readme(plugin: Plugin) -> Result<Option<String>, String> {
-    marketplace::fetch_readme(&plugin).map_err(|e| e.to_string())
+fn fetch_plugin_readme(
+    plugin: Plugin,
+    marketplace_name: Option<String>,
+) -> Result<Option<String>, String> {
+    marketplace::fetch_readme(&plugin, marketplace_name.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

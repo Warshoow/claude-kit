@@ -8,13 +8,10 @@ hero:
   image:
     src: /icon.png
     alt: claude-kit
-  actions:
-    - theme: brand
-      text: Download for your OS
-      link: https://github.com/Warshoow/claude-kit/releases
-    - theme: alt
-      text: View on GitHub
-      link: https://github.com/Warshoow/claude-kit
+  # CTAs are rendered by the DownloadButton component injected via the
+  # `home-hero-actions-after` slot (see .vitepress/theme/Layout.vue).
+  # Defining an empty actions list here would render an empty action
+  # row, so we omit the field entirely.
 
 features:
   - icon: 📦

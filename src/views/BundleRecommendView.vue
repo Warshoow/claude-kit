@@ -155,10 +155,11 @@ async function apply() {
   phase.value = "applying";
 
   // 1. Import plugins the user kept checked.
+  const importTargets = recommendation.value.plugins_to_import.filter(
+    (rp) => pluginAccepted.value.get(rp.name) && !rp.already_imported
+  );
   let importFailures = 0;
-  for (const rp of recommendation.value.plugins_to_import) {
-    if (!pluginAccepted.value.get(rp.name)) continue;
-    if (rp.already_imported) continue;
+  for (const rp of importTargets) {
     if (!rp.plugin) {
       importFailures++;
       continue;
@@ -172,20 +173,24 @@ async function apply() {
   }
   await store.refreshLibrary();
 
-  // 2. Filter accepted assets to those that ACTUALLY exist in the
-  // library now — the model occasionally invents a name, and an import
-  // may have failed too.
+  // 2. Resolve checked assets against the post-import library. The model
+  // occasionally invents asset names — the recommendation prompt only
+  // shows it plugin names + descriptions, not each plugin's actual
+  // contents, so it has to guess. Anything that doesn't materialize is
+  // dropped from the bundle but reported back to the user so the gap
+  // doesn't feel silent.
   const libIndex = new Set(store.library.map((a) => `${a.kind}:${a.name}`));
-  const refs = recommendation.value.assets
-    .filter((a) => assetAccepted.value.get(assetMapKey(a)))
-    .filter((a) => libIndex.has(`${a.kind}:${a.name}`))
-    .map((a) => ({ kind: a.kind as AssetKind, name: a.name }));
+  const acceptedAssets = recommendation.value.assets.filter((a) =>
+    assetAccepted.value.get(assetMapKey(a))
+  );
+  const found = acceptedAssets.filter((a) => libIndex.has(`${a.kind}:${a.name}`));
+  const missing = acceptedAssets.filter((a) => !libIndex.has(`${a.kind}:${a.name}`));
 
-  if (refs.length === 0) {
+  if (found.length === 0) {
     phase.value = "review";
     toast.error("Nothing to bundle", {
       description:
-        "After imports, none of the accepted assets are in the library — try keeping more plugins checked.",
+        "After imports, none of the accepted assets are in the library — the model likely invented those names. Try keeping more plugins checked, or pick assets manually.",
     });
     return;
   }
@@ -197,7 +202,10 @@ async function apply() {
       trimmedName,
       bundleDescription.value.trim() || undefined
     );
-    await api.setBundleAssets(trimmedName, refs);
+    await api.setBundleAssets(
+      trimmedName,
+      found.map((a) => ({ kind: a.kind as AssetKind, name: a.name }))
+    );
     await store.refreshBundles();
   } catch (e) {
     error.value = String(e);
@@ -205,12 +213,27 @@ async function apply() {
     return;
   }
 
+  // 4. Tell the user exactly what landed where so the gap between
+  // "I checked 12 things" and "the bundle has 8" never feels silent.
+  const summary = `Bundle "${trimmedName}" ready · ${found.length} asset${found.length === 1 ? "" : "s"}`;
+  const notes: string[] = [];
   if (importFailures > 0) {
-    toast.warning(
-      `Bundle created, but ${importFailures} plugin import${importFailures === 1 ? "" : "s"} failed`
+    notes.push(
+      `${importFailures} plugin import${importFailures === 1 ? "" : "s"} failed`
     );
+  }
+  if (missing.length > 0) {
+    const sample = missing.slice(0, 3).map((m) => `${m.kind}/${m.name}`).join(", ");
+    const overflow = missing.length > 3 ? ` (+${missing.length - 3} more)` : "";
+    notes.push(
+      `${missing.length} suggested asset${missing.length === 1 ? "" : "s"} weren't found after import (model invented names): ${sample}${overflow}`
+    );
+  }
+
+  if (notes.length === 0) {
+    toast.success(summary);
   } else {
-    toast.success(`Bundle "${trimmedName}" ready`);
+    toast.warning(summary, { description: notes.join(". ") });
   }
   router.push({ name: "bundle-detail", params: { name: trimmedName } });
 }

@@ -41,12 +41,6 @@ features:
       Rewrite every asset in a bundle so it reads like one author wrote it.
       Per-hunk diff review (green / red, accept or reject) before anything hits
       disk.
-  - icon: 🧠
-    title: Bundle recommender
-    details: |
-      Tell the AI what you're trying to do and get a ready-made bundle:
-      curated plugins to import, specific assets to include, with per-line
-      checkboxes to refine.
   - icon: 🔄
     title: Force-overwrite updates
     details: |

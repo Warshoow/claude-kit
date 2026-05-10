@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Plus, Package, Boxes, ChevronRight, Sparkles } from "lucide-vue-next";
+import { Plus, Package, Boxes, ChevronRight } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
 import { assetKey } from "@/lib/types";
@@ -74,14 +74,18 @@ function openBundle(name: string) {
       <h2 class="text-sm font-semibold">My Bundles</h2>
       <span class="text-xs text-muted-foreground">{{ bundles.length }}</span>
       <div class="flex-1" />
-      <Button
-        variant="outline"
-        size="sm"
-        @click="router.push({ name: 'bundle-recommend' })"
-      >
-        <Sparkles />
-        Recommend (AI)
-      </Button>
+      <!--
+        Recommend (AI) button intentionally hidden. The feature is
+        functional but suffers from the model hallucinating asset
+        names (it only sees plugin descriptions, not contents — see
+        BundleRecommendView and the discussion in docs/roadmap.md).
+        Curation is more in line with the CurseForge mental model
+        anyway: the user picks. Re-enable when we've either (a) made
+        the recommender project-aware via claude CLI agentic mode, or
+        (b) pre-cached marketplace plugin contents so name suggestions
+        are guaranteed to exist. Route + view + backend stay in place
+        and `/recommend` is still reachable directly for testing.
+      -->
       <Button size="sm" @click="openCreate">
         <Plus />
         Create bundle

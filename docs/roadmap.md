@@ -36,7 +36,7 @@ Trois features shipped avec backend dual mode (Claude CLI subprocess + API OpenA
 
 - **Générateur d'assets** : bouton "Generate with AI" dans l'éditeur + mode "Generate from prompt" dans le NewAssetDialog
 - **Harmoniseur de bundle** : bouton "Harmonize" sur un bundle → page `/bundles/:name/harmonize` avec review per-hunk (accept/reject par bloc de lignes) avant apply
-- **Recommandeur de bundle** : bouton "Recommend (AI)" dans My Bundles → page `/recommend` avec checkboxes per-plugin et per-asset, bundle name/description éditables, validation contre collisions
+- **Recommandeur de bundle** : page `/recommend` avec checkboxes per-plugin et per-asset, bundle name/description éditables, validation contre collisions. **Bouton d'accès retiré de l'UI** — la feature reste codée et accessible en URL directe pour test, mais le prompt qu'on envoie au modèle ne lui montre que les noms+descriptions des plugins (pas leur contenu réel), donc l'IA hallucine régulièrement les noms d'assets. CurseForge ne fait pas non plus de recommandation auto — la curation est l'expression de l'expertise de l'user. À ressortir si on (a) la rebuilde project-aware via claude CLI agentic, ou (b) pré-cache le contenu des plugins pour fournir un catalogue d'assets garantis-existants au modèle.
 
 ### Site web
 

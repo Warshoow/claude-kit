@@ -96,7 +96,6 @@ Two backends, auto-detected: the local Claude Code CLI (zero-config — uses you
 
 - **Generate an asset** — describe what you want, the model produces a Claude-Code-shaped file. Available both when creating a new asset and when editing an existing one (with a *Refine* mode that sends current content as context).
 - **Harmonize a bundle** — rewrite every asset of a bundle so it reads like one author wrote it. Per-hunk diff review with accept/reject before any write.
-- **Recommend a bundle** — describe your need, the model picks plugins from the marketplace and assembles a bundle. Per-line checkboxes refine the suggestion.
 
 **MCP support**
 - Import `.mcp.json` from any plugin
@@ -150,7 +149,7 @@ See [`docs/build.md`](docs/build.md) for the full procedure including icon gener
 
 ## Roadmap
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. The big features are now in: AI flows (generator, harmonizer, recommender), force-overwrite plugin updates, multiple marketplaces, and a VitePress landing site at `website/`.
+See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. The big features are now in: AI flows (generator, harmonizer), force-overwrite plugin updates, multiple marketplaces, and a VitePress landing site at `website/`.
 
 What's still to do:
 

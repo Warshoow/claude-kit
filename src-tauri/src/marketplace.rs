@@ -393,7 +393,7 @@ pub fn download_and_extract(
 
 pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportResult> {
     let extraction = download_and_extract(plugin, Some(marketplace_name))?;
-    let result = library::import_from_plugin(&extraction.plugin_root)?;
+    let result = library::import_from_plugin(&extraction.plugin_root, Some(&plugin.name))?;
 
     // Tag freshly-imported assets with their origin. Failures here don't roll
     // back the import — the assets are on disk; missing the origin trace is a

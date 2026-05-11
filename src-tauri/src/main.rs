@@ -116,7 +116,7 @@ fn list_installed_cmd(project_path: String) -> Vec<InstalledAsset> {
 
 #[tauri::command]
 fn import_plugin(source_path: String) -> Result<ImportResult, String> {
-    library::import_from_plugin(&PathBuf::from(source_path)).map_err(|e| e.to_string())
+    library::import_from_plugin(&PathBuf::from(source_path), None).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -437,10 +437,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Import skills/commands/agents from a plugin-style folder.
-/// Looks for `<source>/skills/*`, `<source>/commands/*.md`, `<source>/agents/*.md`
-/// and copies them into the library. Existing entries are skipped.
-pub fn import_from_plugin(source: &Path) -> Result<ImportResult> {
+/// Import skills/commands/agents/hooks/mcp from a plugin-style folder.
+///
+/// `canonical_name`: when importing from the marketplace, pass
+/// `Some(&plugin.name)` so that hooks/ and mcp/ entries in the library are
+/// keyed by the official plugin name rather than the extracted folder name
+/// (which can differ, e.g. `playwright-mcp-abc123/` vs `"playwright"`).
+/// Pass `None` for local folder imports where the folder name is authoritative.
+pub fn import_from_plugin(source: &Path, canonical_name: Option<&str>) -> Result<ImportResult> {
     if !source.is_dir() {
         return Err(anyhow!("not a directory: {}", source.display()));
     }
@@ -492,16 +496,23 @@ pub fn import_from_plugin(source: &Path) -> Result<ImportResult> {
         }
     }
 
+    // Derive the storage key for hooks/mcp: prefer the caller-supplied
+    // canonical name; fall back to the source folder name for local imports.
+    let plugin_key = canonical_name
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            source
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        });
+
     // --- hooks/ ---
     let hooks_src = source.join("hooks");
     if hooks_src.is_dir() {
-        let plugin_folder = source
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-        let hooks_dst = library_dir().join("hooks").join(&plugin_folder);
+        let hooks_dst = library_dir().join("hooks").join(&plugin_key);
         if hooks_dst.exists() {
-            skipped.push(format!("hooks/{plugin_folder}"));
+            skipped.push(format!("hooks/{plugin_key}"));
         } else {
             fs::create_dir_all(&hooks_dst)?;
             for entry in fs::read_dir(&hooks_src)?.flatten() {
@@ -522,16 +533,12 @@ pub fn import_from_plugin(source: &Path) -> Result<ImportResult> {
     // may use the plain "mcp.json" name. We check both.
     let mcp_src_candidates = [source.join(".mcp.json"), source.join("mcp.json")];
     if let Some(mcp_src) = mcp_src_candidates.iter().find(|p| p.is_file()) {
-        let plugin_folder = source
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
-        let mcp_dst = library_dir().join("mcp").join(format!("{plugin_folder}.json"));
+        let mcp_dst = library_dir().join("mcp").join(format!("{plugin_key}.json"));
         if mcp_dst.exists() {
-            skipped.push(format!("mcp/{plugin_folder}.json"));
+            skipped.push(format!("mcp/{plugin_key}.json"));
         } else {
             fs::copy(mcp_src, &mcp_dst)?;
-            imported.push(format!("mcp/{plugin_folder}.json"));
+            imported.push(format!("mcp/{plugin_key}.json"));
         }
     }
 

@@ -205,7 +205,7 @@ function openPlugin(g: PluginGroup) {
 
       <!-- Body -->
       <ScrollArea class="flex-1 min-h-0">
-        <template v-if="library.length === 0">
+        <template v-if="groups.length === 0">
           <div
             class="flex h-full min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center"
           >

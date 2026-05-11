@@ -199,3 +199,9 @@ export interface ApplyUpdateResult {
   written: number;
   origins_refreshed: number;
 }
+
+export interface ImportShareResult {
+  bundle_name: string;
+  imported: string[];
+  skipped: string[];
+}

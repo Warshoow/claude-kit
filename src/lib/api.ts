@@ -11,6 +11,7 @@ import type {
   HarmonizationResult,
   HookEntry,
   ImportResult,
+  ImportShareResult,
   InstalledAsset,
   InstalledHook,
   Marketplace,
@@ -67,6 +68,10 @@ export const api = {
     invoke<void>("apply_mcp_cmd", { projectPath, plugin }),
   removePlugin: (pluginName: string) =>
     invoke<number>("remove_plugin_cmd", { pluginName }),
+  encodeBundleShare: (name: string) =>
+    invoke<string>("encode_bundle_share", { name }),
+  importBundleShare: (code: string) =>
+    invoke<ImportShareResult>("import_bundle_share", { code }),
   // ── AI / settings ─────────────────────────────────────────────
   aiStatus: () => invoke<AiStatus>("ai_status_cmd"),
   aiGenerate: (kind: AssetKind, prompt: string, context?: string) =>

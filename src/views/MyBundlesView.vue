@@ -2,10 +2,11 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Plus, Package, Boxes, ChevronRight } from "lucide-vue-next";
+import { Download, Plus, Package, Boxes, ChevronRight } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
 import { assetKey } from "@/lib/types";
+import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,6 +66,36 @@ async function submitCreate() {
 function openBundle(name: string) {
   router.push({ name: "bundle-detail", params: { name } });
 }
+
+// ── Import from share code ────────────────────────────────────────
+const importOpen = ref(false);
+const importCode = ref("");
+const importing = ref(false);
+
+function openImport() {
+  importCode.value = "";
+  importOpen.value = true;
+}
+
+async function submitImport() {
+  const code = importCode.value.trim();
+  if (!code || importing.value) return;
+  importing.value = true;
+  try {
+    const result = await bundleStore.importBundleShare(code);
+    importOpen.value = false;
+    const desc = [
+      result.imported.length ? `${result.imported.length} asset${result.imported.length === 1 ? "" : "s"} imported` : null,
+      result.skipped.length ? `${result.skipped.length} already in library` : null,
+    ].filter(Boolean).join(", ");
+    toast.success(`Bundle "${result.bundle_name}" imported`, desc ? { description: desc } : undefined);
+    router.push({ name: "bundle-detail", params: { name: result.bundle_name } });
+  } catch (e) {
+    toast.error("Import failed", { description: String(e) });
+  } finally {
+    importing.value = false;
+  }
+}
 </script>
 
 <template>
@@ -86,6 +117,10 @@ function openBundle(name: string) {
         are guaranteed to exist. Route + view + backend stay in place
         and `/recommend` is still reachable directly for testing.
       -->
+      <Button size="sm" variant="outline" @click="openImport">
+        <Download />
+        Import
+      </Button>
       <Button size="sm" @click="openCreate">
         <Plus />
         Create bundle
@@ -157,6 +192,36 @@ function openBundle(name: string) {
         </article>
       </div>
     </ScrollArea>
+
+    <!-- Import from share code dialog -->
+    <Dialog v-model:open="importOpen">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Import a shared bundle</DialogTitle>
+          <DialogDescription>
+            Paste a share code to recreate the bundle with all its assets and
+            provenance metadata.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-1.5">
+          <Label for="import-code">Share code</Label>
+          <textarea
+            id="import-code"
+            v-model="importCode"
+            placeholder="ck1:…"
+            class="h-28 w-full resize-none rounded-md border bg-background px-3 py-2 font-mono text-[11px] leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            autofocus
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="importOpen = false">Cancel</Button>
+          <Button
+            :disabled="!importCode.trim() || importing"
+            @click="submitImport"
+          >{{ importing ? "Importing…" : "Import bundle" }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <!-- Create dialog -->
     <Dialog v-model:open="createOpen">

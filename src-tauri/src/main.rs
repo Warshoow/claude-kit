@@ -14,7 +14,7 @@ mod recommend;
 mod settings;
 mod update;
 
-use bundles::{Bundle, BundleRef};
+use bundles::{Bundle, BundleRef, ImportShareResult};
 use library::{ensure_layout, scan_all, Asset, AssetKind, HookEntry, ImportResult, McpEntry};
 use marketplace::{Marketplace, Plugin};
 use project::{InstalledAsset, InstalledHook};
@@ -49,6 +49,16 @@ fn delete_bundle(name: String) -> Result<(), String> {
 #[tauri::command]
 fn set_bundle_assets(name: String, assets: Vec<BundleRef>) -> Result<Bundle, String> {
     bundles::set_bundle_assets(&name, assets).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn encode_bundle_share(name: String) -> Result<String, String> {
+    bundles::encode_bundle_share(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn import_bundle_share(code: String) -> Result<ImportShareResult, String> {
+    bundles::import_bundle_share(&code).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -352,6 +362,8 @@ fn main() {
             create_bundle,
             delete_bundle,
             set_bundle_assets,
+            encode_bundle_share,
+            import_bundle_share,
             apply_bundle,
             apply_single,
             remove_single,

@@ -5,7 +5,10 @@ import { storeToRefs } from "pinia";
 import {
   ArrowLeft,
   ChevronLeft,
+  ClipboardCheck,
+  Copy,
   Plus,
+  Share2,
   Sparkles,
   Trash2,
   Check,
@@ -141,6 +144,30 @@ async function confirmDelete() {
   router.push({ name: "bundles" });
 }
 
+// ── Share bundle ──────────────────────────────────────────────────
+const shareOpen = ref(false);
+const shareCode = ref("");
+const shareLoading = ref(false);
+const shareCopied = ref(false);
+
+async function openShare() {
+  if (!bundle.value) return;
+  shareCode.value = "";
+  shareLoading.value = true;
+  shareOpen.value = true;
+  try {
+    shareCode.value = await bundleStore.encodeBundleShare(bundle.value.name);
+  } finally {
+    shareLoading.value = false;
+  }
+}
+
+async function copyShareCode() {
+  await navigator.clipboard.writeText(shareCode.value);
+  shareCopied.value = true;
+  setTimeout(() => { shareCopied.value = false; }, 2000);
+}
+
 // Decorate an asset reference with its full library entry (for description, origin)
 function findAsset(ref: BundleRef): Asset | undefined {
   return library.value.find(
@@ -229,6 +256,16 @@ function kindLabel(kind: AssetKind): string {
             >
               <Sparkles />
               Harmonize
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="bundle.assets.length === 0"
+              title="Share this bundle with someone"
+              @click="openShare"
+            >
+              <Share2 />
+              Share
             </Button>
             <Button
               variant="ghost"
@@ -422,6 +459,43 @@ function kindLabel(kind: AssetKind): string {
               Add {{ pickedKeys.size > 0 ? `(${pickedKeys.size})` : "" }}
             </Button>
           </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Share dialog -->
+    <Dialog v-model:open="shareOpen">
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Share "{{ bundle?.name }}"</DialogTitle>
+          <DialogDescription>
+            Send this code to anyone. Importing it recreates the bundle with
+            all your assets — including any edits or AI harmonizations.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-3">
+          <div
+            v-if="shareLoading"
+            class="rounded-md border bg-muted/40 px-3 py-6 text-center text-xs text-muted-foreground"
+          >
+            Generating share code…
+          </div>
+          <div v-else class="relative">
+            <textarea
+              readonly
+              :value="shareCode"
+              class="h-28 w-full resize-none rounded-md border bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground focus:outline-none"
+              @click="($event.target as HTMLTextAreaElement).select()"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="shareOpen = false">Close</Button>
+          <Button :disabled="shareLoading || !shareCode" @click="copyShareCode">
+            <ClipboardCheck v-if="shareCopied" />
+            <Copy v-else />
+            {{ shareCopied ? "Copied!" : "Copy code" }}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

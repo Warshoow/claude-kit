@@ -293,3 +293,29 @@ body {
   max-width: 100%;
   border-radius: 0.5rem;
 }
+
+/* ==========================================================================
+   Sonner toast theming
+   Sonner injects its own CSS that hard-codes --normal-bg: #000 (dark) / #fff
+   (light) via [data-sonner-toaster][data-sonner-theme='...'] (specificity
+   0,2,0,0). We use `html [data-sonner-toaster]...` (0,2,1,0) to win.
+   The toaster is teleported to <body> which is a descendant of <html class="dark">,
+   so the .dark CSS variables are already inherited — we just reference them here.
+   ========================================================================== */
+
+html [data-sonner-toaster] {
+  --border-radius: var(--radius);
+  font-family: inherit;
+}
+
+html [data-sonner-toaster][data-sonner-theme='light'] {
+  --normal-bg: var(--popover);
+  --normal-text: var(--popover-foreground);
+  --normal-border: var(--border);
+}
+
+html [data-sonner-toaster][data-sonner-theme='dark'] {
+  --normal-bg: var(--card);
+  --normal-text: var(--card-foreground);
+  --normal-border: var(--border);
+}

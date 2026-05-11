@@ -258,7 +258,7 @@ async function installUpdate() {
       <RouterView v-else />
     </main>
 
-    <Toaster position="bottom-right" rich-colors />
+    <Toaster position="bottom-right" rich-colors :theme="theme" />
   </div>
 </template>
 

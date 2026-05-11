@@ -3,9 +3,6 @@
 /* ============================================================ */
 
 :root {
-  /* Primary brand colour, used for the hero name, CTAs, links and
-     other accents. Matches the app's --primary in dark mode and the
-     icon's dominant orange. */
   --vp-c-brand-1: #F97316;
   --vp-c-brand-2: #EA580C;
   --vp-c-brand-3: #C2410C;
@@ -15,137 +12,26 @@
   --vp-c-brand-lighter: #FDBA74;
   --vp-c-brand-dark: #C2410C;
   --vp-c-brand-darker: #9A3412;
-
-  /* Hero gradient: warm orange fading into pink, used by the
-     `--vp-home-hero-name-background` token below to colour the
-     headline text. */
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(
-    120deg,
-    #F97316 30%,
-    #FB923C
-  );
-
-  /* Soft halo behind the hero image. */
-  --vp-home-hero-image-background-image: linear-gradient(
-    -45deg,
-    #F97316 50%,
-    #FBBF24 50%
-  );
-  --vp-home-hero-image-filter: blur(56px);
 }
 
 .dark {
   --vp-c-brand-soft: rgba(249, 115, 22, 0.18);
-  --vp-home-hero-image-filter: blur(72px);
 }
 
 /* ============================================================ */
-/* Layout polish                                                 */
+/* Remove default VPPage top/bottom padding so Home.vue fills   */
+/* the viewport edge-to-edge without extra gaps.                */
 /* ============================================================ */
-
-/* Tighten the section rhythm — VitePress's default `section`
-   spacing is generous for docs but feels loose on a single-page
-   landing. */
-.kit-section {
-  max-width: 960px;
-  margin: 4rem auto;
-  padding: 0 1.5rem;
-}
-
-@media (min-width: 768px) {
-  .kit-section {
-    margin: 6rem auto;
-  }
-}
-
-.kit-section h2 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin-bottom: 1.5rem;
-}
-
-/* Screenshots grid — two columns on desktop, single column on
-   mobile. Each image has a subtle frame to lift it off the page
-   without competing with the brand orange. */
-.kit-screenshots {
-  display: grid;
-  gap: 2rem;
-  grid-template-columns: 1fr;
-}
-
-@media (min-width: 768px) {
-  .kit-screenshots {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-.kit-screenshots p {
-  margin: 0.5rem 0 0;
-  font-size: 0.85rem;
-  color: var(--vp-c-text-2);
-  text-align: center;
-}
-
-.kit-screenshots img {
-  width: 100%;
-  height: auto;
-  border-radius: 0.75rem;
-  border: 1px solid var(--vp-c-divider);
-  box-shadow: 0 4px 24px -8px rgba(0, 0, 0, 0.18);
-  transition: transform 200ms ease, box-shadow 200ms ease;
-}
-
-.kit-screenshots img:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 32px -8px rgba(249, 115, 22, 0.25);
-}
-
-/* The default home features grid is good but its icons render a
-   bit too pale in dark mode — bump the contrast. */
-.VPFeature .icon {
-  font-size: 1.5rem;
+.VPPage {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 /* ============================================================ */
-/* Icon sizing                                                   */
+/* Navbar logo sizing                                            */
 /* ============================================================ */
-
-/* Hero image — VitePress defaults to ~320px which leaves the orange
-   icon a bit small next to the headline. Bump it across breakpoints. */
-.VPHero .VPImage,
-.VPHero .image-src {
-  max-width: 100%;
-  max-height: 100%;
-}
-
-@media (min-width: 640px) {
-  .VPHero .image-container {
-    width: 360px;
-    height: 360px;
-  }
-}
-
-@media (min-width: 960px) {
-  .VPHero .image-container {
-    width: 440px;
-    height: 440px;
-  }
-}
-
-@media (min-width: 1280px) {
-  .VPHero .image-container {
-    width: 480px;
-    height: 480px;
-  }
-}
-
-/* Navbar logo — default rendering is ~24px which is hard to read on
-   higher-density displays. Goose it up slightly without affecting the
-   header height. */
 .VPNavBarTitle .logo {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   margin-right: 0.5rem;
 }

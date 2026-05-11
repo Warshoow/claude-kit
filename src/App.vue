@@ -3,8 +3,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Folder, Minus, Square, X, Copy, Sun, Moon, Settings as SettingsIcon } from "lucide-vue-next";
-import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
+import { Folder, Minus, Square, X, Copy, Sun, Moon, ArrowUpCircle, Settings as SettingsIcon } from "lucide-vue-next";
+import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { toast } from "vue-sonner";
 import appIcon from "@/assets/icon.png";
@@ -119,42 +119,34 @@ onMounted(() => {
     document.documentElement.classList.add("platform-mac");
   }
 
-  // Defer the auto-update check so the UI lands first and the user
-  // doesn't see a popup before the app even rendered. Failure here is
-  // expected before signing keys are wired up — log + move on.
+  // Defer the update check so the UI is fully rendered first.
   setTimeout(checkForAppUpdate, 3000);
 });
+
+const pendingUpdate = ref<Update | null>(null);
+const updateInstalling = ref(false);
 
 async function checkForAppUpdate() {
   try {
     const update = await checkForUpdate();
-    if (!update?.available) return;
-
-    toast(`Update available: v${update.version}`, {
-      description: update.body
-        ? update.body.slice(0, 240)
-        : "Click Update to download and install. The app will relaunch.",
-      duration: Infinity,
-      action: {
-        label: "Update",
-        onClick: async () => {
-          const progress = toast.loading(`Downloading v${update.version}…`);
-          try {
-            await update.downloadAndInstall();
-            toast.success("Installed — relaunching", { id: progress });
-            await relaunch();
-          } catch (e) {
-            toast.error("Update failed", {
-              id: progress,
-              description: String(e),
-            });
-          }
-        },
-      },
-    });
+    if (update?.available) pendingUpdate.value = update;
   } catch (e) {
-    // Pre-signing-keys releases hit this every startup — keep it quiet.
+    // Expected before signing keys are configured — stay quiet.
     console.warn("update check failed:", e);
+  }
+}
+
+async function installUpdate() {
+  if (!pendingUpdate.value || updateInstalling.value) return;
+  updateInstalling.value = true;
+  const progress = toast.loading(`Downloading v${pendingUpdate.value.version}…`);
+  try {
+    await pendingUpdate.value.downloadAndInstall();
+    toast.success("Installed — relaunching…", { id: progress });
+    await relaunch();
+  } catch (e) {
+    toast.error("Update failed", { id: progress, description: String(e) });
+    updateInstalling.value = false;
   }
 }
 </script>
@@ -197,6 +189,18 @@ async function checkForAppUpdate() {
         <Folder class="size-3 shrink-0" />
         <span v-if="projectPath" class="truncate font-mono">{{ projectPath }}</span>
         <span v-else class="italic">No project selected</span>
+      </button>
+
+      <button
+        v-if="pendingUpdate"
+        type="button"
+        class="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-60"
+        :disabled="updateInstalling"
+        :title="`v${pendingUpdate.version} available — click to install`"
+        @click="installUpdate"
+      >
+        <ArrowUpCircle class="size-3.5" :class="updateInstalling ? 'animate-spin' : ''" />
+        {{ updateInstalling ? "Installing…" : `v${pendingUpdate.version}` }}
       </button>
 
       <button

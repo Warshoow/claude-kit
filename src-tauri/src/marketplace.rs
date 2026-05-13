@@ -420,6 +420,273 @@ pub fn import_plugin(plugin: &Plugin, marketplace_name: &str) -> Result<ImportRe
 mod tests {
     use super::*;
 
+    // ── extract_host_repo ──────────────────────────────────────────
+
+    #[test]
+    fn extract_host_repo_valid_raw_url() {
+        let url = "https://raw.githubusercontent.com/owner/repo/main/marketplace.json";
+        assert_eq!(extract_host_repo(url), Some("owner/repo".to_string()));
+    }
+
+    #[test]
+    fn extract_host_repo_deeper_path() {
+        let url = "https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/plugins/foo/bar.json";
+        assert_eq!(
+            extract_host_repo(url),
+            Some("anthropics/claude-plugins-official".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_host_repo_non_github_returns_none() {
+        assert_eq!(extract_host_repo("https://example.com/file.json"), None);
+        assert_eq!(extract_host_repo("https://cdn.jsdelivr.net/gh/owner/repo/file.json"), None);
+    }
+
+    #[test]
+    fn extract_host_repo_empty_owner_returns_none() {
+        assert_eq!(extract_host_repo("https://raw.githubusercontent.com//repo/main/f.json"), None);
+    }
+
+    // ── parse_github_url ──────────────────────────────────────────
+
+    #[test]
+    fn parse_github_url_https() {
+        let r = parse_github_url("https://github.com/owner/repo").unwrap();
+        assert_eq!(r, "owner/repo");
+    }
+
+    #[test]
+    fn parse_github_url_strips_dot_git() {
+        let r = parse_github_url("https://github.com/owner/repo.git").unwrap();
+        assert_eq!(r, "owner/repo");
+    }
+
+    #[test]
+    fn parse_github_url_strips_trailing_slash() {
+        let r = parse_github_url("https://github.com/owner/repo/").unwrap();
+        assert_eq!(r, "owner/repo");
+    }
+
+    #[test]
+    fn parse_github_url_http_accepted() {
+        let r = parse_github_url("http://github.com/owner/repo").unwrap();
+        assert_eq!(r, "owner/repo");
+    }
+
+    #[test]
+    fn parse_github_url_ssh_syntax() {
+        let r = parse_github_url("git@github.com:owner/repo").unwrap();
+        assert_eq!(r, "owner/repo");
+    }
+
+    #[test]
+    fn parse_github_url_not_github_errors() {
+        assert!(parse_github_url("https://gitlab.com/owner/repo").is_err());
+    }
+
+    #[test]
+    fn parse_github_url_no_slash_in_path_errors() {
+        assert!(parse_github_url("https://github.com/justowner").is_err());
+    }
+
+    // ── parse_kind_name ───────────────────────────────────────────
+
+    #[test]
+    fn parse_kind_name_command_strips_md() {
+        let (kind, name) = parse_kind_name("commands/my-cmd.md").unwrap();
+        assert_eq!(kind, AssetKind::Commands);
+        assert_eq!(name, "my-cmd");
+    }
+
+    #[test]
+    fn parse_kind_name_agent_strips_md() {
+        let (kind, name) = parse_kind_name("agents/my-agent.md").unwrap();
+        assert_eq!(kind, AssetKind::Agents);
+        assert_eq!(name, "my-agent");
+    }
+
+    #[test]
+    fn parse_kind_name_skill_keeps_name() {
+        let (kind, name) = parse_kind_name("skills/my-skill").unwrap();
+        assert_eq!(kind, AssetKind::Skills);
+        assert_eq!(name, "my-skill");
+    }
+
+    #[test]
+    fn parse_kind_name_skill_without_md_extension() {
+        // Skills are directories — names never have .md even if present by accident.
+        let (kind, name) = parse_kind_name("skills/foo.md").unwrap();
+        assert_eq!(kind, AssetKind::Skills);
+        assert_eq!(name, "foo.md"); // NOT stripped for skills
+    }
+
+    #[test]
+    fn parse_kind_name_unknown_kind_returns_none() {
+        assert!(parse_kind_name("hooks/something").is_none());
+        assert!(parse_kind_name("mcp/config.json").is_none());
+    }
+
+    #[test]
+    fn parse_kind_name_no_slash_returns_none() {
+        assert!(parse_kind_name("commands").is_none());
+    }
+
+    // ── resolve_source ────────────────────────────────────────────
+
+    #[test]
+    fn resolve_inline_uses_provided_host_repo() {
+        let src = PluginSource::Inline("./plugins/foo".to_string());
+        let r = resolve_source(&src, Some("myorg/myrepo")).unwrap();
+        assert_eq!(r.repo, "myorg/myrepo");
+        assert_eq!(r.subdir, "plugins/foo");
+        assert_eq!(r.git_ref, DEFAULT_REF);
+    }
+
+    #[test]
+    fn resolve_inline_falls_back_to_marketplace_repo_when_no_host() {
+        let src = PluginSource::Inline("./plugins/bar".to_string());
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.repo, MARKETPLACE_REPO);
+    }
+
+    #[test]
+    fn resolve_inline_strips_leading_slash() {
+        let src = PluginSource::Inline("/plugins/baz".to_string());
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.subdir, "plugins/baz");
+    }
+
+    #[test]
+    fn resolve_github_object_no_commit() {
+        let src = PluginSource::Object(PluginSourceObject::Github {
+            repo: "owner/plugin".to_string(),
+            commit: None,
+        });
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.repo, "owner/plugin");
+        assert_eq!(r.git_ref, DEFAULT_REF);
+        assert!(r.subdir.is_empty());
+    }
+
+    #[test]
+    fn resolve_github_object_with_commit() {
+        let src = PluginSource::Object(PluginSourceObject::Github {
+            repo: "owner/plugin".to_string(),
+            commit: Some("abc123".to_string()),
+        });
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.git_ref, "abc123");
+    }
+
+    #[test]
+    fn resolve_url_object_with_sha() {
+        let src = PluginSource::Object(PluginSourceObject::Url {
+            url: "https://github.com/owner/repo".to_string(),
+            sha: Some("deadbeef".to_string()),
+        });
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.repo, "owner/repo");
+        assert_eq!(r.git_ref, "deadbeef");
+    }
+
+    #[test]
+    fn resolve_git_subdir_prefers_sha_over_git_ref() {
+        let src = PluginSource::Object(PluginSourceObject::GitSubdir {
+            url: "https://github.com/owner/mono".to_string(),
+            path: "packages/plugin-a".to_string(),
+            git_ref: Some("develop".to_string()),
+            sha: Some("sha999".to_string()),
+            branch: None,
+        });
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.git_ref, "sha999");
+        assert_eq!(r.subdir, "packages/plugin-a");
+    }
+
+    #[test]
+    fn resolve_git_subdir_falls_back_to_git_ref() {
+        let src = PluginSource::Object(PluginSourceObject::GitSubdir {
+            url: "https://github.com/owner/mono".to_string(),
+            path: "packages/plugin-b".to_string(),
+            git_ref: Some("stable".to_string()),
+            sha: None,
+            branch: None,
+        });
+        let r = resolve_source(&src, None).unwrap();
+        assert_eq!(r.git_ref, "stable");
+    }
+
+    // ── tarball_url ───────────────────────────────────────────────
+
+    #[test]
+    fn tarball_url_format() {
+        let r = ResolvedRef {
+            repo: "owner/repo".to_string(),
+            git_ref: "main".to_string(),
+            subdir: String::new(),
+        };
+        assert_eq!(
+            tarball_url(&r),
+            "https://codeload.github.com/owner/repo/tar.gz/main"
+        );
+    }
+
+    #[test]
+    fn tarball_url_with_sha() {
+        let r = ResolvedRef {
+            repo: "owner/plugin".to_string(),
+            git_ref: "abc1234".to_string(),
+            subdir: String::new(),
+        };
+        assert_eq!(
+            tarball_url(&r),
+            "https://codeload.github.com/owner/plugin/tar.gz/abc1234"
+        );
+    }
+
+    // ── readme_urls ───────────────────────────────────────────────
+
+    #[test]
+    fn readme_urls_with_subdir_returns_four() {
+        let r = ResolvedRef {
+            repo: "owner/repo".to_string(),
+            git_ref: "main".to_string(),
+            subdir: "plugins/foo".to_string(),
+        };
+        let urls = readme_urls(&r);
+        assert_eq!(urls.len(), 4);
+        assert!(urls[0].contains("plugins/foo/README.md"));
+        assert!(urls[1].contains("plugins/foo/readme.md"));
+        assert!(urls[2].ends_with("/README.md"));
+        assert!(urls[3].ends_with("/readme.md"));
+    }
+
+    #[test]
+    fn readme_urls_without_subdir_returns_two() {
+        let r = ResolvedRef {
+            repo: "owner/repo".to_string(),
+            git_ref: "main".to_string(),
+            subdir: String::new(),
+        };
+        let urls = readme_urls(&r);
+        assert_eq!(urls.len(), 2);
+        assert!(urls[0].ends_with("/README.md"));
+        assert!(urls[1].ends_with("/readme.md"));
+    }
+
+    #[test]
+    fn readme_urls_base_contains_repo_and_ref() {
+        let r = ResolvedRef {
+            repo: "myorg/myplugin".to_string(),
+            git_ref: "v2.0.0".to_string(),
+            subdir: String::new(),
+        };
+        let urls = readme_urls(&r);
+        assert!(urls[0].contains("myorg/myplugin"));
+        assert!(urls[0].contains("v2.0.0"));
+    }
+
     // Network tests — run with: cargo test --no-default-features -- --ignored --test-threads=1
     // (--test-threads=1 because they share CLAUDE_KIT_HOME via env var)
 

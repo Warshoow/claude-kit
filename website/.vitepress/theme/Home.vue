@@ -21,7 +21,7 @@ const features = [
   {
     icon: '✨',
     title: 'AI flows',
-    desc: 'Generate assets from a prompt, or harmonize a whole bundle so every file reads like one author wrote it. Per-hunk diff review before anything hits disk.',
+    desc: 'Generate assets from a prompt. Or harmonize a whole bundle — assets pulled from different plugins have no shared logic, which creates gaps in your workflow. Harmonization rewrites them together so they form a coherent, functional whole instead of a patchwork. Per-hunk diff review before anything hits disk.',
   },
   {
     icon: '🔄',

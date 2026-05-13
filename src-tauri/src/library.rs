@@ -545,6 +545,265 @@ pub fn import_from_plugin(source: &Path, canonical_name: Option<&str>) -> Result
     Ok(ImportResult { imported, skipped })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_temp_home<F: FnOnce()>(f: F) {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = crate::HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CLAUDE_KIT_HOME", dir.path());
+        f();
+        std::env::remove_var("CLAUDE_KIT_HOME");
+    }
+
+    // ── AssetKind ─────────────────────────────────────────────────────
+
+    #[test]
+    fn asset_kind_as_str() {
+        assert_eq!(AssetKind::Skills.as_str(), "skills");
+        assert_eq!(AssetKind::Commands.as_str(), "commands");
+        assert_eq!(AssetKind::Agents.as_str(), "agents");
+    }
+
+    #[test]
+    fn asset_kind_all_covers_three_variants() {
+        let all = AssetKind::all();
+        assert_eq!(all.len(), 3);
+        assert!(all.contains(&AssetKind::Skills));
+        assert!(all.contains(&AssetKind::Commands));
+        assert!(all.contains(&AssetKind::Agents));
+    }
+
+    // ── validate_asset_name ───────────────────────────────────────────
+
+    #[test]
+    fn valid_names_accepted() {
+        assert!(validate_asset_name("hello").is_ok());
+        assert!(validate_asset_name("my-command").is_ok());
+        assert!(validate_asset_name("my_skill").is_ok());
+        assert!(validate_asset_name("abc123").is_ok());
+        assert!(validate_asset_name("A-B_C").is_ok());
+        assert!(validate_asset_name(&"a".repeat(64)).is_ok());
+    }
+
+    #[test]
+    fn empty_name_rejected() {
+        let e = validate_asset_name("").unwrap_err();
+        assert!(e.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn name_too_long_rejected() {
+        let e = validate_asset_name(&"a".repeat(65)).unwrap_err();
+        assert!(e.to_string().contains("long"));
+    }
+
+    #[test]
+    fn name_with_dot_rejected() {
+        assert!(validate_asset_name("foo.bar").is_err());
+    }
+
+    #[test]
+    fn name_with_slash_rejected() {
+        assert!(validate_asset_name("foo/bar").is_err());
+    }
+
+    #[test]
+    fn name_with_space_rejected() {
+        assert!(validate_asset_name("foo bar").is_err());
+    }
+
+    #[test]
+    fn name_with_md_extension_rejected() {
+        assert!(validate_asset_name("foo.md").is_err());
+    }
+
+    // ── kit_home ──────────────────────────────────────────────────────
+
+    #[test]
+    fn kit_home_honours_env_var() {
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = crate::HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CLAUDE_KIT_HOME", dir.path());
+        assert_eq!(kit_home(), dir.path());
+        std::env::remove_var("CLAUDE_KIT_HOME");
+    }
+
+    // ── ensure_layout ─────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_layout_creates_expected_dirs() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let lib = library_dir();
+            for kind in AssetKind::all() {
+                assert!(lib.join(kind.as_str()).is_dir(), "missing dir: {}", kind.as_str());
+            }
+            assert!(lib.join("hooks").is_dir());
+            assert!(lib.join("mcp").is_dir());
+            assert!(bundles_dir().is_dir());
+        });
+    }
+
+    #[test]
+    fn ensure_layout_is_idempotent() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            ensure_layout().unwrap(); // second call must not fail
+            assert!(library_dir().join("skills").is_dir());
+        });
+    }
+
+    // ── origins migration ─────────────────────────────────────────────
+
+    #[test]
+    fn read_origins_migrates_dotmd_keys() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let old = r#"{
+                "commands:foo.md": {"marketplace":"m","plugin":"p","imported_at":"2024-01-01T00:00:00Z"},
+                "agents:bar.md":   {"marketplace":"m","plugin":"p","imported_at":"2024-01-01T00:00:00Z"},
+                "skills:baz":      {"marketplace":"m","plugin":"p","imported_at":"2024-01-01T00:00:00Z"}
+            }"#;
+            std::fs::write(library_dir().join(".origins.json"), old).unwrap();
+
+            let origins = read_origins();
+            assert!(origins.contains_key("commands:foo"), ".md suffix must be stripped");
+            assert!(origins.contains_key("agents:bar"),   ".md suffix must be stripped");
+            assert!(origins.contains_key("skills:baz"),   "skills key unchanged");
+            assert!(!origins.contains_key("commands:foo.md"), "old key must be gone");
+            assert!(!origins.contains_key("agents:bar.md"),   "old key must be gone");
+        });
+    }
+
+    #[test]
+    fn read_origins_clean_keys_unchanged() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let clean = r#"{"commands:foo":{"marketplace":"m","plugin":"p","imported_at":"2024-01-01T00:00:00Z"}}"#;
+            std::fs::write(library_dir().join(".origins.json"), clean).unwrap();
+            let origins = read_origins();
+            assert!(origins.contains_key("commands:foo"));
+        });
+    }
+
+    #[test]
+    fn read_origins_returns_empty_when_file_absent() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let origins = read_origins();
+            assert!(origins.is_empty());
+        });
+    }
+
+    // ── mark_harmonized / read_harmonized ─────────────────────────────
+
+    #[test]
+    fn mark_and_read_harmonized_roundtrip() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            mark_harmonized(AssetKind::Commands, "my-cmd", "2024-06-01T00:00:00Z").unwrap();
+            mark_harmonized(AssetKind::Skills, "my-skill", "2024-06-02T00:00:00Z").unwrap();
+            let map = read_harmonized();
+            assert_eq!(map.get("commands:my-cmd").map(String::as_str), Some("2024-06-01T00:00:00Z"));
+            assert_eq!(map.get("skills:my-skill").map(String::as_str), Some("2024-06-02T00:00:00Z"));
+            assert!(map.get("agents:missing").is_none());
+        });
+    }
+
+    #[test]
+    fn mark_harmonized_overwrites_previous_timestamp() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            mark_harmonized(AssetKind::Commands, "cmd", "2024-01-01T00:00:00Z").unwrap();
+            mark_harmonized(AssetKind::Commands, "cmd", "2024-12-31T00:00:00Z").unwrap();
+            let map = read_harmonized();
+            assert_eq!(map.get("commands:cmd").map(String::as_str), Some("2024-12-31T00:00:00Z"));
+        });
+    }
+
+    // ── import_from_plugin ────────────────────────────────────────────
+
+    #[test]
+    fn import_from_plugin_uses_canonical_name_for_mcp() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let plugin_dir = tempfile::tempdir().unwrap();
+            std::fs::write(plugin_dir.path().join(".mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
+
+            let result = import_from_plugin(plugin_dir.path(), Some("playwright")).unwrap();
+            assert!(result.imported.contains(&"mcp/playwright.json".to_string()));
+            assert!(library_dir().join("mcp").join("playwright.json").exists());
+        });
+    }
+
+    #[test]
+    fn import_from_plugin_uses_folder_name_when_no_canonical() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let root = tempfile::tempdir().unwrap();
+            let named_dir = root.path().join("my-plugin");
+            std::fs::create_dir_all(&named_dir).unwrap();
+            std::fs::write(named_dir.join(".mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
+
+            let result = import_from_plugin(&named_dir, None).unwrap();
+            assert!(result.imported.contains(&"mcp/my-plugin.json".to_string()));
+            assert!(library_dir().join("mcp").join("my-plugin.json").exists());
+        });
+    }
+
+    #[test]
+    fn import_from_plugin_imports_commands_and_agents() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let plugin_dir = tempfile::tempdir().unwrap();
+            let cmds = plugin_dir.path().join("commands");
+            let agents = plugin_dir.path().join("agents");
+            std::fs::create_dir_all(&cmds).unwrap();
+            std::fs::create_dir_all(&agents).unwrap();
+            std::fs::write(cmds.join("my-cmd.md"), "# my-cmd\n").unwrap();
+            std::fs::write(agents.join("my-agent.md"), "# my-agent\n").unwrap();
+
+            let result = import_from_plugin(plugin_dir.path(), Some("test-plugin")).unwrap();
+            assert!(result.imported.iter().any(|s| s.contains("my-cmd.md")));
+            assert!(result.imported.iter().any(|s| s.contains("my-agent.md")));
+            assert!(library_dir().join("commands").join("my-cmd.md").exists());
+        });
+    }
+
+    #[test]
+    fn import_from_plugin_skips_existing_assets() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let plugin_dir = tempfile::tempdir().unwrap();
+            let cmds = plugin_dir.path().join("commands");
+            std::fs::create_dir_all(&cmds).unwrap();
+            std::fs::write(cmds.join("existing.md"), "upstream content\n").unwrap();
+            // Pre-create the destination
+            std::fs::write(library_dir().join("commands").join("existing.md"), "my edits\n").unwrap();
+
+            let result = import_from_plugin(plugin_dir.path(), None).unwrap();
+            assert!(result.skipped.iter().any(|s| s.contains("existing")));
+            let content = std::fs::read_to_string(library_dir().join("commands").join("existing.md")).unwrap();
+            assert_eq!(content, "my edits\n", "local edits must be preserved");
+        });
+    }
+
+    #[test]
+    fn import_from_plugin_plain_mcp_json_also_accepted() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let plugin_dir = tempfile::tempdir().unwrap();
+            // Use plain "mcp.json" (no dot prefix)
+            std::fs::write(plugin_dir.path().join("mcp.json"), r#"{"mcpServers":{}}"#).unwrap();
+
+            let result = import_from_plugin(plugin_dir.path(), Some("my-mcp-plugin")).unwrap();
+            assert!(result.imported.contains(&"mcp/my-mcp-plugin.json".to_string()));
+        });
+    }
+}
+
 /// Remove all library entries that originated from `plugin_name`:
 /// assets tracked in `.origins.json`, the hooks subfolder, and the mcp JSON.
 /// Returns the count of removed items.

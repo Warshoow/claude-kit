@@ -46,7 +46,7 @@ pub fn harmonize_bundle(
     }
 
     let system = build_system_prompt();
-    let user = build_user_prompt(&bundle.name, instruction, &originals);
+    let user = build_user_prompt(&bundle.name, bundle.description.as_deref(), instruction, &originals);
     let raw = generate_text(&system, &user)?;
     let parsed = parse_response(&raw);
 
@@ -92,18 +92,20 @@ fn parse_kind(s: &str) -> Option<AssetKind> {
 }
 
 fn build_system_prompt() -> String {
-    r#"You are harmonizing a Claude Code bundle: a curated set of skills, commands, and agents the user assembled to be applied to a project together.
+    r#"You are harmonizing a Claude Code bundle: a curated set of skills, commands, and agents the user assembled from different plugins to be applied to a project together.
 
-Your goal: rewrite each asset so the bundle reads like it was authored by one person. PRESERVE each asset's purpose and core behaviour — never turn a skill into something it isn't.
+THE CORE PROBLEM you are solving: each asset was written in isolation by a different plugin author. They don't reference each other, use different terminology for the same concepts, and leave gaps in the workflow — steps that fall between assets and would leave the user confused about what to do next. Your job is to close those gaps and make the bundle work as a cohesive whole.
 
-Apply consistency across:
-- Tone of voice (active, terse, professional)
-- Terminology (use the same words for the same concepts everywhere)
-- YAML frontmatter format (description as a single sentence; tags optional and lowercase-hyphenated)
-- Document structure (heading levels, section ordering, list style)
-- Cross-references between assets (if asset A mentions asset B, name it correctly)
+START by reading all assets to understand what the bundle does as a whole. Infer its purpose from the content itself — a bundle description may or may not be provided, but treat it only as a hint; the assets are the source of truth.
 
-If an asset is already consistent with the rest, return it unchanged — repeat its content verbatim.
+Your goal: rewrite every asset so the bundle forms a single, functional workflow rather than a patchwork of independent pieces. This means:
+
+1. Bridge workflow gaps — if asset A produces output that asset B consumes, make sure both describe that handoff. Add missing steps or clarifying notes where assets don't connect.
+2. Align shared concepts — pick one word for each concept and use it everywhere (e.g. if some assets say "review" and others say "audit", pick one).
+3. Add cross-references where useful — if a skill naturally feeds into a command, say so.
+4. Unify tone and structure — active, terse, professional. Consistent heading levels, list style, and YAML frontmatter format (description as a single sentence; tags optional and lowercase-hyphenated).
+
+PRESERVE each asset's core purpose and behaviour — never turn a skill into something it isn't.
 
 OUTPUT FORMAT (strict, machine-parsed):
 
@@ -118,11 +120,15 @@ Use the same `<kind>/<name>` header you received in the input. Output nothing ou
 
 fn build_user_prompt(
     bundle_name: &str,
+    bundle_description: Option<&str>,
     instruction: Option<&str>,
     assets: &[HarmonizationResult],
 ) -> String {
     let mut s = String::new();
     s.push_str(&format!("Bundle: {bundle_name}\n"));
+    if let Some(desc) = bundle_description.map(str::trim).filter(|x| !x.is_empty()) {
+        s.push_str(&format!("Bundle purpose (optional hint): {desc}\n"));
+    }
     if let Some(extra) = instruction.map(str::trim).filter(|x| !x.is_empty()) {
         s.push_str(&format!("Additional instruction: {extra}\n"));
     }
@@ -195,5 +201,55 @@ mod tests {
         let r = parse_response(txt);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].1, "body");
+    }
+
+    #[test]
+    fn parse_kind_valid_variants() {
+        assert_eq!(parse_kind("skills"),   Some(AssetKind::Skills));
+        assert_eq!(parse_kind("commands"), Some(AssetKind::Commands));
+        assert_eq!(parse_kind("agents"),   Some(AssetKind::Agents));
+    }
+
+    #[test]
+    fn parse_kind_invalid_returns_none() {
+        assert_eq!(parse_kind("unknown"), None);
+        assert_eq!(parse_kind("Skills"),  None); // case-sensitive
+        assert_eq!(parse_kind(""),        None);
+    }
+
+    #[test]
+    fn content_with_frontmatter_preserved() {
+        let txt = "<<<HARMONIZE-BEGIN: commands/foo>>>\n---\ndescription: test\n---\n# foo\n\nsome body\n<<<HARMONIZE-END>>>";
+        let r = parse_response(txt);
+        assert_eq!(r.len(), 1);
+        assert!(r[0].1.contains("description: test"));
+        assert!(r[0].1.contains("some body"));
+    }
+
+    #[test]
+    fn content_trimmed_of_surrounding_blank_lines() {
+        let txt = "<<<HARMONIZE-BEGIN: commands/bar>>>\n\n\nbody line\n\n\n<<<HARMONIZE-END>>>";
+        let r = parse_response(txt);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].1, "body line", "leading/trailing newlines must be trimmed");
+    }
+
+    #[test]
+    fn two_blocks_same_kind_both_parsed() {
+        let txt = "<<<HARMONIZE-BEGIN: commands/a>>>\nalpha\n<<<HARMONIZE-END>>>\n\
+                   <<<HARMONIZE-BEGIN: commands/b>>>\nbeta\n<<<HARMONIZE-END>>>";
+        let r = parse_response(txt);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0], ("commands/a".to_string(), "alpha".to_string()));
+        assert_eq!(r[1], ("commands/b".to_string(), "beta".to_string()));
+    }
+
+    #[test]
+    fn empty_content_block_accepted() {
+        // Model returns empty content for an unchanged asset — still a valid block.
+        let txt = "<<<HARMONIZE-BEGIN: agents/x>>>\n<<<HARMONIZE-END>>>";
+        let r = parse_response(txt);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].1, "");
     }
 }

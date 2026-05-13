@@ -327,4 +327,61 @@ mod tests {
             Some("contains } and { in text")
         );
     }
+
+    #[test]
+    fn strips_generic_fence_without_json_tag() {
+        let s = "```\n{\"bundle\":{\"name\":\"x\"},\"rationale\":\"\",\"plugins\":[],\"assets\":[]}\n```";
+        let r = parse_json_recommendation(s).expect("parse");
+        assert_eq!(r.bundle.name, "x");
+    }
+
+    #[test]
+    fn handles_escaped_backslash_in_string() {
+        let s = r#"{"bundle":{"name":"x","description":"path: C:\\Users\\foo"},"rationale":"","plugins":[],"assets":[]}"#;
+        let r = parse_json_recommendation(s).expect("parse");
+        assert_eq!(r.bundle.description.as_deref(), Some(r"path: C:\Users\foo"));
+    }
+
+    #[test]
+    fn returns_error_when_no_json_object() {
+        let err = parse_json_recommendation("no json here at all").unwrap_err();
+        assert!(err.to_string().contains("JSON object") || err.to_string().contains("json"));
+    }
+
+    #[test]
+    fn returns_error_on_empty_input() {
+        assert!(parse_json_recommendation("").is_err());
+    }
+
+    #[test]
+    fn parses_assets_array_with_kinds() {
+        let s = r#"{
+            "bundle":{"name":"b","description":"d"},
+            "rationale":"r",
+            "plugins":[{"name":"plug","reason":"because"}],
+            "assets":[
+                {"kind":"skills","name":"my-skill","plugin":"plug","reason":"r1"},
+                {"kind":"commands","name":"my-cmd","plugin":"plug","reason":"r2"}
+            ]
+        }"#;
+        let r = parse_json_recommendation(s).expect("parse");
+        assert_eq!(r.assets.len(), 2);
+        assert_eq!(r.assets[0].kind, crate::library::AssetKind::Skills);
+        assert_eq!(r.assets[1].name, "my-cmd");
+        assert_eq!(r.plugins[0].name, "plug");
+    }
+
+    #[test]
+    fn truncate_for_error_caps_at_200_chars() {
+        let long = "x".repeat(300);
+        let truncated = truncate_for_error(&long);
+        assert!(truncated.len() <= 204, "should be ~200 chars + ellipsis");
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_for_error_leaves_short_strings_intact() {
+        let short = "hello world";
+        assert_eq!(truncate_for_error(short), short);
+    }
 }

@@ -97,6 +97,7 @@ Interface ligne de commande pour les mêmes opérations (apply bundle, import pl
 - Streaming de tokens dans le générateur (aujourd'hui blocking)
 - "Discard changes" rapide sur l'éditeur d'asset après une génération qui ne plaît pas (Cmd-Z marche mais c'est pas évident)
 - Surfacer les doublons / conflits entre assets dans l'harmoniseur (option qu'on avait notée à l'époque)
+- **Harmoniseur : suggestions de nouveaux assets** — quand l'harmoniseur détecte un gap important entre assets (ou des assets sans thème commun), il peut suggérer de nouveaux assets à créer pour combler ce gap. Les suggestions sont affichées séparément (pas créées automatiquement) et peuvent être envoyées au générateur d'assets en un clic. Aujourd'hui l'harmoniseur est strict (modifie uniquement les assets existants) ; cette feature serait opt-in.
 
 ### Customisation hooks d'install
 

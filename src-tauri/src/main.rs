@@ -14,6 +14,12 @@ mod recommend;
 mod settings;
 mod update;
 
+// Single lock shared across all test modules that mutate CLAUDE_KIT_HOME.
+// Using crate::HOME_LOCK from each module's #[cfg(test)] block prevents races
+// between modules that otherwise run in parallel.
+#[cfg(test)]
+pub static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use bundles::{Bundle, BundleRef, ImportShareResult};
 use library::{ensure_layout, scan_all, Asset, AssetKind, HookEntry, ImportResult, McpEntry};
 use marketplace::{Marketplace, Plugin};

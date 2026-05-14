@@ -309,8 +309,9 @@ pub fn materialize_generated_bundle(
     for asset in &assets {
         library::write_asset_content(asset.kind, &asset.name, &asset.content)?;
         created.push(BundleRef {
-            kind: asset.kind,
+            kind: asset.kind.into(),
             name: asset.name.clone(),
+            plugin: None,
         });
     }
 

@@ -8,10 +8,65 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+/// Kinds of entries a bundle can carry. Wider than `AssetKind` —
+/// covers hooks and MCP server configs in addition to the three
+/// "main" markdown asset kinds. Skills/commands/agents are
+/// uniquely identified by `(kind, name)`; hooks/mcp also need a
+/// `plugin` (origin folder name) since they can be plugin-scoped.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum BundleEntryKind {
+    Skills,
+    Commands,
+    Agents,
+    Hooks,
+    Mcp,
+}
+
+impl BundleEntryKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BundleEntryKind::Skills => "skills",
+            BundleEntryKind::Commands => "commands",
+            BundleEntryKind::Agents => "agents",
+            BundleEntryKind::Hooks => "hooks",
+            BundleEntryKind::Mcp => "mcp",
+        }
+    }
+
+    /// Map back to the narrower AssetKind. Returns `None` for hooks/mcp,
+    /// which aren't representable as `AssetKind`.
+    pub fn as_asset_kind(&self) -> Option<AssetKind> {
+        match self {
+            BundleEntryKind::Skills => Some(AssetKind::Skills),
+            BundleEntryKind::Commands => Some(AssetKind::Commands),
+            BundleEntryKind::Agents => Some(AssetKind::Agents),
+            _ => None,
+        }
+    }
+}
+
+impl From<AssetKind> for BundleEntryKind {
+    fn from(k: AssetKind) -> Self {
+        match k {
+            AssetKind::Skills => BundleEntryKind::Skills,
+            AssetKind::Commands => BundleEntryKind::Commands,
+            AssetKind::Agents => BundleEntryKind::Agents,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleRef {
-    pub kind: AssetKind,
+    pub kind: BundleEntryKind,
     pub name: String,
+    /// Set for hooks/mcp entries that live under a plugin folder
+    /// (`library/hooks/<plugin>/<name>` or `library/mcp/<plugin>.json`).
+    /// `None` is reserved for the future flat layout used by entries
+    /// the user creates locally (AI-generated hooks, hand-built MCP
+    /// servers). For skills/commands/agents this field is always `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,9 +161,13 @@ pub fn set_bundle_assets(name: &str, assets: Vec<BundleRef>) -> Result<Bundle> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SharedAsset {
-    pub kind: AssetKind,
+    pub kind: BundleEntryKind,
     pub name: String,
     pub content: String,
+    /// Plugin folder name for hooks/mcp entries; absent for skills/
+    /// commands/agents and for future flat hooks/mcp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -141,6 +200,28 @@ fn asset_content_path(kind: AssetKind, name: &str) -> PathBuf {
     }
 }
 
+/// Path the share encoder reads from / the importer writes to for an
+/// entry. For skills/commands/agents we go through `asset_content_path`.
+/// For hooks/mcp the `plugin` field is required in step 1 — the flat
+/// layout will be wired in alongside the manual MCP / AI hook UI in
+/// later steps.
+fn entry_disk_path(entry_kind: BundleEntryKind, name: &str, plugin: Option<&str>) -> Result<PathBuf> {
+    if let Some(asset_kind) = entry_kind.as_asset_kind() {
+        return Ok(asset_content_path(asset_kind, name));
+    }
+    let plugin = plugin.ok_or_else(|| {
+        anyhow!(
+            "{} entry '{name}' missing plugin field — flat layout not supported yet",
+            entry_kind.as_str()
+        )
+    })?;
+    match entry_kind {
+        BundleEntryKind::Hooks => Ok(library_dir().join("hooks").join(plugin).join(name)),
+        BundleEntryKind::Mcp => Ok(library_dir().join("mcp").join(format!("{plugin}.json"))),
+        _ => unreachable!("as_asset_kind handled the markdown kinds"),
+    }
+}
+
 pub fn encode_bundle_share(bundle_name: &str) -> Result<String> {
     let bundle =
         read_bundle(bundle_name).ok_or_else(|| anyhow!("bundle not found: {bundle_name}"))?;
@@ -150,16 +231,26 @@ pub fn encode_bundle_share(bundle_name: &str) -> Result<String> {
 
     let mut assets = Vec::new();
     for r in &bundle.assets {
-        let content_path = asset_content_path(r.kind, &r.name);
+        let content_path = entry_disk_path(r.kind, &r.name, r.plugin.as_deref())?;
         let content = fs::read_to_string(&content_path)
             .with_context(|| format!("reading {}", content_path.display()))?;
-        let key = format!("{}:{}", r.kind.as_str(), &r.name);
+        // Origins + harmonized maps key by AssetKind only (the three
+        // markdown kinds). Hooks/mcp don't carry harmonized state and
+        // their provenance lives via their plugin folder, not here.
+        let (origin, harmonized_at) = match r.kind.as_asset_kind() {
+            Some(ak) => {
+                let key = format!("{}:{}", ak.as_str(), &r.name);
+                (origins.get(&key).cloned(), harmonized.get(&key).cloned())
+            }
+            None => (None, None),
+        };
         assets.push(SharedAsset {
             kind: r.kind,
             name: r.name.clone(),
             content,
-            origin: origins.get(&key).cloned(),
-            harmonized_at: harmonized.get(&key).cloned(),
+            plugin: r.plugin.clone(),
+            origin,
+            harmonized_at,
         });
     }
 
@@ -200,20 +291,28 @@ pub fn import_bundle_share(code: &str) -> Result<ImportShareResult> {
     let mut skipped = Vec::new();
 
     for asset in &manifest.assets {
-        let content_path = asset_content_path(asset.kind, &asset.name);
+        let content_path =
+            entry_disk_path(asset.kind, &asset.name, asset.plugin.as_deref())?;
+        let label = match &asset.plugin {
+            Some(p) => format!("{}:{}/{}", asset.kind.as_str(), p, &asset.name),
+            None => format!("{}:{}", asset.kind.as_str(), &asset.name),
+        };
         if content_path.exists() {
-            skipped.push(format!("{}:{}", asset.kind.as_str(), &asset.name));
+            skipped.push(label);
             continue;
         }
         fs::create_dir_all(content_path.parent().unwrap())?;
         fs::write(&content_path, &asset.content)?;
-        if let Some(origin) = &asset.origin {
-            set_origin(asset.kind, &asset.name, origin.clone())?;
+        // Origin + harmonized state only applies to skills/commands/agents.
+        if let Some(asset_kind) = asset.kind.as_asset_kind() {
+            if let Some(origin) = &asset.origin {
+                set_origin(asset_kind, &asset.name, origin.clone())?;
+            }
+            if let Some(harmonized_at) = &asset.harmonized_at {
+                mark_harmonized(asset_kind, &asset.name, harmonized_at)?;
+            }
         }
-        if let Some(harmonized_at) = &asset.harmonized_at {
-            mark_harmonized(asset.kind, &asset.name, harmonized_at)?;
-        }
-        imported.push(format!("{}:{}", asset.kind.as_str(), &asset.name));
+        imported.push(label);
     }
 
     // Deduplicate bundle name if one already exists locally.
@@ -224,7 +323,11 @@ pub fn import_bundle_share(code: &str) -> Result<ImportShareResult> {
         assets: manifest
             .assets
             .iter()
-            .map(|a| BundleRef { kind: a.kind, name: a.name.clone() })
+            .map(|a| BundleRef {
+                kind: a.kind,
+                name: a.name.clone(),
+                plugin: a.plugin.clone(),
+            })
             .collect(),
     };
     write_bundle(&bundle)?;
@@ -260,11 +363,20 @@ mod tests {
 
     fn make_cmd_asset(name: &str) -> SharedAsset {
         SharedAsset {
-            kind: AssetKind::Commands,
+            kind: BundleEntryKind::Commands,
             name: name.to_string(),
             content: format!("---\ndescription: test\n---\n# {name}\n"),
+            plugin: None,
             origin: None,
             harmonized_at: None,
+        }
+    }
+
+    fn make_cmd_ref(name: &str) -> BundleRef {
+        BundleRef {
+            kind: BundleEntryKind::Commands,
+            name: name.to_string(),
+            plugin: None,
         }
     }
 
@@ -290,15 +402,17 @@ mod tests {
     #[test]
     fn share_manifest_optional_fields_omitted_when_none() {
         let asset = SharedAsset {
-            kind: AssetKind::Commands,
+            kind: BundleEntryKind::Commands,
             name: "cmd".to_string(),
             content: "body".to_string(),
+            plugin: None,
             origin: None,
             harmonized_at: None,
         };
         let json = serde_json::to_string(&asset).unwrap();
         assert!(!json.contains("origin"), "None origin must be omitted");
         assert!(!json.contains("harmonized_at"), "None harmonized_at must be omitted");
+        assert!(!json.contains("plugin"), "None plugin must be omitted");
     }
 
     // ── encode_bundle_share ───────────────────────────────────────────
@@ -309,9 +423,7 @@ mod tests {
             create_bundle("my-bundle", None).unwrap();
             let cmd_path = library_dir().join("commands").join("hello.md");
             std::fs::write(&cmd_path, "# hello\n").unwrap();
-            set_bundle_assets("my-bundle", vec![
-                BundleRef { kind: AssetKind::Commands, name: "hello".to_string() },
-            ]).unwrap();
+            set_bundle_assets("my-bundle", vec![make_cmd_ref("hello")]).unwrap();
 
             let code = encode_bundle_share("my-bundle").unwrap();
             assert!(code.starts_with("ck1:"), "share code must start with ck1:");
@@ -370,9 +482,7 @@ mod tests {
             create_bundle("source-bundle", Some("A source bundle".to_string())).unwrap();
             let cmd_path = library_dir().join("commands").join("shared-cmd.md");
             std::fs::write(&cmd_path, "---\ndescription: shared\n---\n# shared-cmd\n").unwrap();
-            set_bundle_assets("source-bundle", vec![
-                BundleRef { kind: AssetKind::Commands, name: "shared-cmd".to_string() },
-            ]).unwrap();
+            set_bundle_assets("source-bundle", vec![make_cmd_ref("shared-cmd")]).unwrap();
 
             let code = encode_bundle_share("source-bundle").unwrap();
             // Simulate a fresh recipient: remove the original bundle + asset.
@@ -395,9 +505,10 @@ mod tests {
                 name: "content-test".to_string(),
                 description: None,
                 assets: vec![SharedAsset {
-                    kind: AssetKind::Commands,
+                    kind: BundleEntryKind::Commands,
                     name: "special-cmd".to_string(),
                     content: "---\ndescription: test\n---\n# special-cmd\nmy hand-edit here\n".to_string(),
+                    plugin: None,
                     origin: None,
                     harmonized_at: None,
                 }],
@@ -422,9 +533,10 @@ mod tests {
                 name: "skip-test".to_string(),
                 description: None,
                 assets: vec![SharedAsset {
-                    kind: AssetKind::Commands,
+                    kind: BundleEntryKind::Commands,
                     name: "existing".to_string(),
                     content: "new content\n".to_string(),
+                    plugin: None,
                     origin: None,
                     harmonized_at: None,
                 }],
@@ -491,6 +603,160 @@ mod tests {
             let bundle = read_bundle("full-bundle").expect("bundle must exist");
             assert_eq!(bundle.assets.len(), 2);
             assert_eq!(bundle.description.as_deref(), Some("desc"));
+        });
+    }
+
+    // ── BundleEntryKind serde + conversion ─────────────────────────
+
+    #[test]
+    fn entry_kind_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&BundleEntryKind::Hooks).unwrap(), "\"hooks\"");
+        assert_eq!(serde_json::to_string(&BundleEntryKind::Mcp).unwrap(), "\"mcp\"");
+        assert_eq!(serde_json::to_string(&BundleEntryKind::Skills).unwrap(), "\"skills\"");
+    }
+
+    #[test]
+    fn entry_kind_as_asset_kind_narrows_correctly() {
+        assert_eq!(BundleEntryKind::Skills.as_asset_kind(), Some(AssetKind::Skills));
+        assert_eq!(BundleEntryKind::Commands.as_asset_kind(), Some(AssetKind::Commands));
+        assert_eq!(BundleEntryKind::Agents.as_asset_kind(), Some(AssetKind::Agents));
+        assert!(BundleEntryKind::Hooks.as_asset_kind().is_none());
+        assert!(BundleEntryKind::Mcp.as_asset_kind().is_none());
+    }
+
+    #[test]
+    fn legacy_bundle_ref_without_plugin_deserializes() {
+        // Older bundle files predate the `plugin` field. They must
+        // still parse cleanly — the field defaults to None.
+        let json = r#"{"kind":"commands","name":"foo"}"#;
+        let r: BundleRef = serde_json::from_str(json).unwrap();
+        assert_eq!(r.kind, BundleEntryKind::Commands);
+        assert_eq!(r.name, "foo");
+        assert!(r.plugin.is_none());
+    }
+
+    // ── Hooks/MCP share roundtrip ──────────────────────────────────
+
+    #[test]
+    fn encode_share_picks_up_hook_content_from_plugin_folder() {
+        with_temp_home(|| {
+            // Hook lives at library/hooks/<plugin>/<file>
+            let plugin_dir = library_dir().join("hooks").join("my-plugin");
+            std::fs::create_dir_all(&plugin_dir).unwrap();
+            std::fs::write(plugin_dir.join("precommit.sh"), "#!/bin/sh\necho hi\n").unwrap();
+
+            create_bundle("with-hook", None).unwrap();
+            set_bundle_assets(
+                "with-hook",
+                vec![BundleRef {
+                    kind: BundleEntryKind::Hooks,
+                    name: "precommit.sh".to_string(),
+                    plugin: Some("my-plugin".to_string()),
+                }],
+            )
+            .unwrap();
+
+            let code = encode_bundle_share("with-hook").unwrap();
+            assert!(code.starts_with("ck1:"));
+        });
+    }
+
+    #[test]
+    fn encode_errors_when_hook_ref_missing_plugin() {
+        with_temp_home(|| {
+            create_bundle("broken", None).unwrap();
+            set_bundle_assets(
+                "broken",
+                vec![BundleRef {
+                    kind: BundleEntryKind::Hooks,
+                    name: "orphan.sh".to_string(),
+                    plugin: None,
+                }],
+            )
+            .unwrap();
+
+            let err = encode_bundle_share("broken").unwrap_err();
+            assert!(
+                err.to_string().contains("flat layout not supported yet"),
+                "got: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn import_roundtrips_hook_under_plugin_folder() {
+        with_temp_home(|| {
+            // Plant a plugin-scoped hook + bundle, encode, then nuke
+            // local state to simulate a fresh recipient.
+            let plugin_dir = library_dir().join("hooks").join("source-plugin");
+            std::fs::create_dir_all(&plugin_dir).unwrap();
+            let hook_path = plugin_dir.join("on-save.sh");
+            std::fs::write(&hook_path, "#!/bin/sh\necho saved\n").unwrap();
+
+            create_bundle("hook-share", None).unwrap();
+            set_bundle_assets(
+                "hook-share",
+                vec![BundleRef {
+                    kind: BundleEntryKind::Hooks,
+                    name: "on-save.sh".to_string(),
+                    plugin: Some("source-plugin".to_string()),
+                }],
+            )
+            .unwrap();
+
+            let code = encode_bundle_share("hook-share").unwrap();
+
+            std::fs::remove_file(&hook_path).unwrap();
+            delete_bundle("hook-share").unwrap();
+
+            let result = import_bundle_share(&code).unwrap();
+            assert_eq!(result.bundle_name, "hook-share");
+            assert!(
+                result
+                    .imported
+                    .iter()
+                    .any(|l| l.contains("hooks:source-plugin/on-save.sh")),
+                "imported list: {:?}",
+                result.imported
+            );
+            assert!(hook_path.exists(), "hook file must land back in plugin folder");
+            let restored = std::fs::read_to_string(&hook_path).unwrap();
+            assert!(restored.contains("echo saved"));
+
+            // Bundle ref preserved with plugin field.
+            let bundle = read_bundle("hook-share").unwrap();
+            assert_eq!(bundle.assets.len(), 1);
+            assert_eq!(bundle.assets[0].kind, BundleEntryKind::Hooks);
+            assert_eq!(bundle.assets[0].plugin.as_deref(), Some("source-plugin"));
+        });
+    }
+
+    #[test]
+    fn import_roundtrips_mcp_file() {
+        with_temp_home(|| {
+            let mcp_path = library_dir().join("mcp").join("playwright.json");
+            let content = r#"{"mcpServers":{"playwright":{"command":"npx"}}}"#;
+            std::fs::write(&mcp_path, content).unwrap();
+
+            create_bundle("mcp-share", None).unwrap();
+            set_bundle_assets(
+                "mcp-share",
+                vec![BundleRef {
+                    kind: BundleEntryKind::Mcp,
+                    name: "playwright".to_string(),
+                    plugin: Some("playwright".to_string()),
+                }],
+            )
+            .unwrap();
+
+            let code = encode_bundle_share("mcp-share").unwrap();
+            std::fs::remove_file(&mcp_path).unwrap();
+            delete_bundle("mcp-share").unwrap();
+
+            import_bundle_share(&code).unwrap();
+            assert!(mcp_path.exists(), "MCP file must land back");
+            let restored = std::fs::read_to_string(&mcp_path).unwrap();
+            assert!(restored.contains("playwright"));
         });
     }
 }

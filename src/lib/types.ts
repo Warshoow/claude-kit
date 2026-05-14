@@ -1,5 +1,9 @@
 export type AssetKind = "skills" | "commands" | "agents";
 
+/** Anything that can live inside a bundle. Wider than `AssetKind`:
+ * also covers hooks (script files) and mcp (server config files). */
+export type BundleEntryKind = AssetKind | "hooks" | "mcp";
+
 export interface Asset {
   kind: AssetKind;
   name: string;
@@ -22,8 +26,12 @@ export interface Origin {
 }
 
 export interface BundleRef {
-  kind: AssetKind;
+  kind: BundleEntryKind;
   name: string;
+  /** Plugin folder name for hooks/mcp refs that live under a plugin
+   * (`library/hooks/<plugin>/<name>` or `library/mcp/<plugin>.json`).
+   * Always absent for skills/commands/agents. */
+  plugin?: string;
 }
 
 export interface Bundle {
@@ -67,6 +75,28 @@ export interface ImportResult {
 
 export function assetKey(a: { kind: AssetKind; name: string }): string {
   return `${a.kind}:${a.name}`;
+}
+
+/** Stable key for any bundle entry — includes the plugin segment so
+ * hooks from different plugins don't collide. Use this when working
+ * with `BundleRef`; `assetKey` stays for narrow `AssetKind` callers. */
+export function bundleEntryKey(a: {
+  kind: BundleEntryKind;
+  name: string;
+  plugin?: string;
+}): string {
+  return a.plugin ? `${a.kind}:${a.plugin}/${a.name}` : `${a.kind}:${a.name}`;
+}
+
+/** Type guard narrowing a `BundleRef` down to the three markdown
+ * asset kinds — useful at callsites that still expect `AssetKind`
+ * (library lookups, the `asset-detail` route, the installed-keys
+ * set built from `list_installed`). Hooks/mcp tracking is wired
+ * separately and shouldn't pass through these paths. */
+export function isAssetRef(
+  r: BundleRef,
+): r is BundleRef & { kind: AssetKind } {
+  return r.kind === "skills" || r.kind === "commands" || r.kind === "agents";
 }
 
 // Marketplace types — mirror src-tauri/src/marketplace.rs

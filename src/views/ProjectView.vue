@@ -11,7 +11,7 @@ import {
   Trash2,
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
-import { assetKey } from "@/lib/types";
+import { assetKey, isAssetRef } from "@/lib/types";
 import type { AssetKind, InstalledAsset } from "@/lib/types";
 import { Terminal } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
@@ -45,14 +45,23 @@ const appliedBundles = computed(() => {
   const installedSet = new Set(installed.value.map(assetKey));
   return bundles.value.filter(
     (b) =>
-      b.assets.length > 0 && b.assets.every((a) => installedSet.has(assetKey(a)))
+      b.assets.length > 0 &&
+      // Step 1: only markdown-asset refs are tracked through
+      // `list_installed`. Hook/mcp install tracking will arrive
+      // alongside their CRUD UI — any such ref currently keeps the
+      // bundle out of the "applied" set.
+      b.assets.every(
+        (a) => isAssetRef(a) && installedSet.has(assetKey(a)),
+      ),
   );
 });
 
 const appliedAssetKeys = computed(() => {
   const s = new Set<string>();
   for (const b of appliedBundles.value) {
-    for (const a of b.assets) s.add(assetKey(a));
+    for (const a of b.assets) {
+      if (isAssetRef(a)) s.add(assetKey(a));
+    }
   }
   return s;
 });

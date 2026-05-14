@@ -5,7 +5,7 @@ import { storeToRefs } from "pinia";
 import { Download, Plus, Package, Boxes, ChevronRight, Sparkles } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
-import { assetKey } from "@/lib/types";
+import { assetKey, isAssetRef } from "@/lib/types";
 import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,11 @@ const appliedBundleNames = computed(() => {
   const names = new Set<string>();
   for (const b of bundles.value) {
     if (b.assets.length === 0) continue;
-    if (b.assets.every((a) => installedKeys.value.has(assetKey(a)))) {
+    if (
+      b.assets.every(
+        (a) => isAssetRef(a) && installedKeys.value.has(assetKey(a)),
+      )
+    ) {
       names.add(b.name);
     }
   }

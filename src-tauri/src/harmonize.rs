@@ -32,17 +32,28 @@ pub fn harmonize_bundle(
     }
 
     // Snapshot the originals up front so we can pair the AI's output
-    // back to the right assets even if the model reorders them.
+    // back to the right assets even if the model reorders them. Only
+    // skills/commands/agents — hooks and MCP are scripts/configs, not
+    // freeform markdown the model can rewrite cohesively.
     let mut originals: Vec<HarmonizationResult> = Vec::with_capacity(bundle.assets.len());
     for r in &bundle.assets {
-        let original = read_asset_content(r.kind, &r.name)
-            .map_err(|e| anyhow!("read {}/{}: {e}", r.kind.as_str(), r.name))?;
+        let Some(asset_kind) = r.kind.as_asset_kind() else {
+            continue;
+        };
+        let original = read_asset_content(asset_kind, &r.name)
+            .map_err(|e| anyhow!("read {}/{}: {e}", asset_kind.as_str(), r.name))?;
         originals.push(HarmonizationResult {
-            kind: r.kind,
+            kind: asset_kind,
             name: r.name.clone(),
             original,
             proposed: String::new(),
         });
+    }
+
+    if originals.is_empty() {
+        return Err(anyhow!(
+            "bundle '{bundle_name}' has no markdown assets to harmonize"
+        ));
     }
 
     let system = build_system_prompt();

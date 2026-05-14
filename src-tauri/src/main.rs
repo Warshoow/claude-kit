@@ -88,9 +88,34 @@ fn apply_bundle(
     }
 
     for a in &bundle.assets {
-        match project::apply_one(&project, a.kind, &a.name, false) {
-            Ok(()) => ok.push(format!("{}/{}", a.kind.as_str(), a.name)),
-            Err(e) => errors.push(format!("{}/{}: {e}", a.kind.as_str(), a.name)),
+        let label = match &a.plugin {
+            Some(p) => format!("{}/{p}/{}", a.kind.as_str(), a.name),
+            None => format!("{}/{}", a.kind.as_str(), a.name),
+        };
+        let result: Result<(), anyhow::Error> = match a.kind.as_asset_kind() {
+            // Skills / commands / agents — symlink the markdown asset.
+            Some(asset_kind) => project::apply_one(&project, asset_kind, &a.name, false),
+            // Hooks: symlink the script. Step 1 requires `plugin` to
+            // be set (flat layout comes with the AI-hook UI later).
+            None if a.kind == bundles::BundleEntryKind::Hooks => match &a.plugin {
+                Some(plugin) => project::apply_hook(&project, plugin, &a.name),
+                None => Err(anyhow::anyhow!(
+                    "hook ref missing plugin — flat hooks not supported yet"
+                )),
+            },
+            // MCP: merge the plugin's whole .mcp.json into project's
+            // .claude/mcp.json. Same step-1 restriction.
+            None if a.kind == bundles::BundleEntryKind::Mcp => match &a.plugin {
+                Some(plugin) => project::apply_mcp(&project, plugin),
+                None => Err(anyhow::anyhow!(
+                    "mcp ref missing plugin — flat mcp not supported yet"
+                )),
+            },
+            None => unreachable!("BundleEntryKind covered above"),
+        };
+        match result {
+            Ok(()) => ok.push(label),
+            Err(e) => errors.push(format!("{label}: {e}")),
         }
     }
     Ok(ApplyResult { ok, errors })

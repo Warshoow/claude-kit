@@ -17,8 +17,8 @@ import {
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
-import { assetKey } from "@/lib/types";
-import type { Asset, AssetKind, BundleRef } from "@/lib/types";
+import { assetKey, bundleEntryKey, isAssetRef } from "@/lib/types";
+import type { Asset, BundleEntryKind, BundleRef } from "@/lib/types";
 import {
   groupAssets,
   loadGroupByPreference,
@@ -66,12 +66,17 @@ const bundle = computed(() =>
 );
 
 const bundleAssetKeys = computed(
-  () => new Set(bundle.value?.assets.map(assetKey) ?? [])
+  () => new Set(bundle.value?.assets.map(bundleEntryKey) ?? [])
 );
 
 const isFullyApplied = computed(() => {
   if (!bundle.value || bundle.value.assets.length === 0) return false;
-  return bundle.value.assets.every((a) => installedKeys.value.has(assetKey(a)));
+  // Step 1: installed-tracking covers skills/commands/agents only.
+  // Hook + MCP installation tracking will land alongside their UI;
+  // until then any hook/mcp ref keeps the bundle "not fully applied".
+  return bundle.value.assets.every(
+    (a) => isAssetRef(a) && installedKeys.value.has(assetKey(a)),
+  );
 });
 
 // ── Add asset dialog ──────────────────────────────────────────────
@@ -168,23 +173,34 @@ async function copyShareCode() {
   setTimeout(() => { shareCopied.value = false; }, 2000);
 }
 
-// Decorate an asset reference with its full library entry (for description, origin)
+// Decorate an asset reference with its full library entry (for description, origin).
+// Hook/MCP refs have no markdown counterpart in `library`, so we return undefined
+// for them — the table just won't show description/origin badges for those rows.
 function findAsset(ref: BundleRef): Asset | undefined {
+  if (!isAssetRef(ref)) return undefined;
   return library.value.find(
     (a) => a.kind === ref.kind && a.name === ref.name
   );
 }
 
 function openAsset(ref: BundleRef) {
+  // Only the markdown kinds have a `/library/:kind/:name` editor view.
+  // Hook/MCP detail pages will arrive with their dedicated UIs.
+  if (!isAssetRef(ref)) return;
   router.push({
     name: "asset-detail",
     params: { kind: ref.kind, name: ref.name },
   });
 }
 
-function kindLabel(kind: AssetKind): string {
-  return kind.charAt(0).toUpperCase() + kind.slice(1, -1);
-  // skills → Skill, commands → Command, agents → Agent
+function kindLabel(kind: BundleEntryKind): string {
+  switch (kind) {
+    case "skills": return "Skill";
+    case "commands": return "Command";
+    case "agents": return "Agent";
+    case "hooks": return "Hook";
+    case "mcp": return "MCP";
+  }
 }
 </script>
 

@@ -156,6 +156,16 @@ export const useAppStore = defineStore("app", () => {
     toast.success(`MCP "${name}" merged into project`);
   }
 
+  async function applyHookLocal(filename: string) {
+    if (!projectPath.value) {
+      toast.warning("Pick a project first");
+      return;
+    }
+    await api.applyHookLocal(projectPath.value, filename);
+    await refreshInstalled();
+    toast.success(`Hook "${filename}" installed (settings.json updated)`);
+  }
+
   async function removePlugin(pluginName: string) {
     await api.removePlugin(pluginName);
     await Promise.all([refreshLibrary(), refreshHooksMcp()]);
@@ -186,6 +196,7 @@ export const useAppStore = defineStore("app", () => {
     toggleHook,
     applyMcp,
     applyMcpLocal,
+    applyHookLocal,
     removePlugin,
   };
 });

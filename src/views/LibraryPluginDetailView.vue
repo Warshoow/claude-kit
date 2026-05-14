@@ -22,9 +22,10 @@ import {
 import { toast } from "vue-sonner";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
-import type { Asset, McpEntry } from "@/lib/types";
+import type { Asset, HookEntry, McpEntry } from "@/lib/types";
 import { assetKey } from "@/lib/types";
 import NewMcpDialog from "@/components/NewMcpDialog.vue";
+import NewHookDialog from "@/components/NewHookDialog.vue";
 import { groupAssets } from "@/lib/grouping";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,6 +94,12 @@ const localMcps = computed<McpEntry[]>(() =>
   isLocal.value ? mcp.value.filter((m) => m.plugin === LOCAL_KEY) : [],
 );
 
+/** Local hooks — the AI-generated and manual ones, with their
+ *  event/matcher metadata for the card. */
+const localHooks = computed<HookEntry[]>(() =>
+  isLocal.value ? hooks.value.filter((h) => h.plugin === LOCAL_KEY) : [],
+);
+
 const mcpServersJson = computed(() => {
   if (!pluginMcp.value) return "";
   return JSON.stringify(pluginMcp.value.servers, null, 2);
@@ -102,6 +109,43 @@ const mcpServersJson = computed(() => {
 const newMcpOpen = ref(false);
 const editMcpName = ref<string | undefined>(undefined);
 const deleteMcpName = ref<string | null>(null);
+
+// ── Local hook CRUD wired through NewHookDialog + the delete confirm ─
+const newHookOpen = ref(false);
+const editHookName = ref<string | undefined>(undefined);
+const deleteHookName = ref<string | null>(null);
+
+function openCreateHook() {
+  editHookName.value = undefined;
+  newHookOpen.value = true;
+}
+function openEditHook(name: string) {
+  editHookName.value = name;
+  newHookOpen.value = true;
+}
+async function onHookSaved() {
+  await store.refreshHooksMcp();
+}
+async function confirmDeleteHook() {
+  if (!deleteHookName.value) return;
+  try {
+    await api.deleteLocalHook(deleteHookName.value);
+    toast.success(`Deleted hook "${deleteHookName.value}"`);
+    await store.refreshHooksMcp();
+  } catch (e) {
+    toast.error("Delete failed", { description: String(e) });
+  } finally {
+    deleteHookName.value = null;
+  }
+}
+
+function hookCardLabel(entry: HookEntry): string {
+  if (!entry.meta) return "(no metadata)";
+  const matcher = entry.meta.matcher && entry.meta.matcher !== "*"
+    ? entry.meta.matcher
+    : "any tool";
+  return `${entry.meta.event} · ${matcher}`;
+}
 
 function openCreateMcp() {
   editMcpName.value = undefined;
@@ -415,6 +459,88 @@ function back() {
             </div>
           </template>
 
+          <!-- Local hooks section — only on the __local__ bucket. -->
+          <template v-if="isLocal">
+            <Separator class="my-1" />
+            <div class="p-3">
+              <div class="flex items-center justify-between px-2.5 pt-1 pb-2">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Local Hooks
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-6 px-2 text-xs"
+                  @click="openCreateHook"
+                >
+                  <Plus class="size-3" />
+                  New hook
+                </Button>
+              </div>
+              <div
+                v-if="localHooks.length === 0"
+                class="rounded-md border border-dashed px-3 py-6 text-center text-xs text-muted-foreground"
+              >
+                No local hooks yet — click <strong>New hook</strong> to
+                generate one with AI, or add one straight from a bundle's
+                <strong>Add hook</strong> picker.
+              </div>
+              <div v-else class="space-y-2">
+                <div
+                  v-for="entry in localHooks"
+                  :key="entry.filename"
+                  class="flex items-center gap-3 rounded-md border bg-card/40 px-3 py-2"
+                >
+                  <Terminal class="size-3.5 shrink-0 text-muted-foreground" />
+                  <div class="min-w-0 flex-1">
+                    <div class="font-mono text-[12.5px] font-medium">
+                      {{ entry.filename }}
+                    </div>
+                    <div class="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {{ hookCardLabel(entry) }}
+                      <template v-if="entry.meta?.description">
+                        — {{ entry.meta.description }}
+                      </template>
+                    </div>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-7 px-2 text-xs"
+                        :disabled="!canInstall"
+                        @click="store.applyHookLocal(entry.filename)"
+                      >
+                        <Server class="size-3" />
+                        Install
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {{ canInstall ? "Symlink + register in settings.json" : "Pick a project first" }}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    class="h-7 px-2 text-xs"
+                    @click="openEditHook(entry.filename)"
+                  >
+                    <Pencil class="size-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    class="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                    @click="deleteHookName = entry.filename"
+                  >
+                    <Trash2 class="size-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </template>
+
           <!-- Local MCP section — only on the __local__ bucket. Lists
                each in-app-created server with edit/delete actions. -->
           <template v-if="isLocal">
@@ -550,6 +676,38 @@ function back() {
             class="bg-destructive text-white hover:bg-destructive/90"
             @click="confirmDelete"
           >Remove plugin</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <!-- Local hook: create / edit -->
+    <NewHookDialog
+      v-model:open="newHookOpen"
+      :edit-name="editHookName"
+      @saved="onHookSaved"
+    />
+
+    <!-- Local hook: delete confirmation -->
+    <AlertDialog
+      :open="!!deleteHookName"
+      @update:open="(v) => !v && (deleteHookName = null)"
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete hook "{{ deleteHookName }}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Removes the script and its metadata sidecar under
+            <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">library/hooks/__local__/</code>.
+            Bundles that reference it will fail to apply this hook until you
+            re-create or remove the reference.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive/90"
+            @click="confirmDeleteHook"
+          >Delete</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

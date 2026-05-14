@@ -174,6 +174,29 @@ pub struct HookEntry {
     pub filename: String,
     pub path: String,
     pub content: String,
+    /// Metadata for locally-created hooks (`plugin == "__local__"`).
+    /// `None` for plugin-shipped hooks where the matcher/event live in
+    /// the plugin's own config and we don't track them here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<LocalHookMeta>,
+}
+
+/// Sidecar metadata for an in-app-created hook. Stored at
+/// `library/hooks/__local__/<filename>.meta.json`. The script file
+/// itself stays untouched so it remains a normal executable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalHookMeta {
+    /// Claude Code event the hook attaches to. We don't enum it on
+    /// the Rust side so future event names (added by the upstream CLI)
+    /// flow through without a code change — frontend validates.
+    pub event: String,
+    /// Tool-name matcher pattern. `"*"` or empty means "any tool".
+    #[serde(default)]
+    pub matcher: String,
+    /// One-line summary shown in the picker; usually the prompt the
+    /// user typed when AI-generating the script.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// Sentinel "plugin" name used for entries the user created locally
@@ -205,6 +228,7 @@ pub fn list_hooks() -> Vec<HookEntry> {
             continue;
         }
         let plugin = plugin_entry.file_name().to_string_lossy().to_string();
+        let is_local = plugin == LOCAL_PLUGIN;
         let Ok(files) = fs::read_dir(plugin_entry.path()) else {
             continue;
         };
@@ -213,17 +237,183 @@ pub fn list_hooks() -> Vec<HookEntry> {
                 continue;
             }
             let filename = file_entry.file_name().to_string_lossy().to_string();
+            // Sidecar metadata files aren't hooks themselves — skip them
+            // here, the matching script will pick them up via meta load.
+            if filename.ends_with(".meta.json") {
+                continue;
+            }
             let content = fs::read_to_string(file_entry.path()).unwrap_or_default();
+            let meta = if is_local {
+                read_local_hook_meta(&filename)
+            } else {
+                None
+            };
             out.push(HookEntry {
                 plugin: plugin.clone(),
                 filename,
                 path: file_entry.path().to_string_lossy().to_string(),
                 content,
+                meta,
             });
         }
     }
     out.sort_by(|a, b| a.plugin.cmp(&b.plugin).then(a.filename.cmp(&b.filename)));
     out
+}
+
+// ── Local hook CRUD ───────────────────────────────────────────────
+//
+// Each local hook lives as two siblings in
+// `library/hooks/__local__/`:
+//   - `<filename>`            ← the script body
+//   - `<filename>.meta.json`  ← event/matcher/description sidecar
+//
+// We accept any filename slug (letters/digits/dash/underscore plus a
+// single optional `.ext` segment) so users can name their scripts
+// `precommit.sh`, `block-rm-rf.py`, etc. without contortions.
+
+fn validate_hook_filename(s: &str) -> Result<()> {
+    if s.is_empty() || s.len() > 96 {
+        return Err(anyhow!("filename must be 1–96 chars"));
+    }
+    let bytes = s.as_bytes();
+    // First char must be alphanumeric to avoid weird leading-dot files.
+    if !bytes[0].is_ascii_alphanumeric() {
+        return Err(anyhow!("filename must start with a letter or digit"));
+    }
+    if s.ends_with(".meta.json") {
+        return Err(anyhow!("'.meta.json' suffix is reserved for sidecars"));
+    }
+    let ok = s
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
+    if !ok {
+        return Err(anyhow!(
+            "filename may only contain letters, digits, '-', '_', '.'"
+        ));
+    }
+    Ok(())
+}
+
+fn local_hook_script_path(filename: &str) -> PathBuf {
+    library_dir().join("hooks").join(LOCAL_PLUGIN).join(filename)
+}
+
+fn local_hook_meta_path(filename: &str) -> PathBuf {
+    library_dir()
+        .join("hooks")
+        .join(LOCAL_PLUGIN)
+        .join(format!("{filename}.meta.json"))
+}
+
+fn read_local_hook_meta(filename: &str) -> Option<LocalHookMeta> {
+    let raw = fs::read_to_string(local_hook_meta_path(filename)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Create a local hook. Writes the script and a sidecar metadata
+/// file. Refuses overwrites — caller should call `update_local_hook`
+/// to replace.
+pub fn create_local_hook(
+    filename: &str,
+    event: &str,
+    matcher: &str,
+    description: Option<&str>,
+    script: &str,
+) -> Result<()> {
+    validate_hook_filename(filename)?;
+    if event.trim().is_empty() {
+        return Err(anyhow!("event is required"));
+    }
+    let script_path = local_hook_script_path(filename);
+    if script_path.exists() {
+        return Err(anyhow!("local hook '{filename}' already exists"));
+    }
+    if let Some(parent) = script_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&script_path, script)
+        .map_err(|e| anyhow!("write {}: {e}", script_path.display()))?;
+
+    let meta = LocalHookMeta {
+        event: event.to_string(),
+        matcher: matcher.to_string(),
+        description: description
+            .map(|d| d.trim())
+            .filter(|d| !d.is_empty())
+            .map(str::to_string),
+    };
+    let meta_json =
+        serde_json::to_string_pretty(&meta).map_err(|e| anyhow!("serialize meta: {e}"))?;
+    fs::write(local_hook_meta_path(filename), meta_json)?;
+
+    // On Unix, mark the script executable. Windows users will need to
+    // wrap with an interpreter anyway (claude-code invokes the file
+    // path directly), so this is best-effort.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = fs::metadata(&script_path) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o755);
+            let _ = fs::set_permissions(&script_path, perms);
+        }
+    }
+    Ok(())
+}
+
+/// Replace an existing local hook's script and/or metadata. Errors
+/// if the hook doesn't already exist (use `create_local_hook` first).
+pub fn update_local_hook(
+    filename: &str,
+    event: &str,
+    matcher: &str,
+    description: Option<&str>,
+    script: &str,
+) -> Result<()> {
+    validate_hook_filename(filename)?;
+    let script_path = local_hook_script_path(filename);
+    if !script_path.exists() {
+        return Err(anyhow!("local hook '{filename}' not found"));
+    }
+    fs::write(&script_path, script)
+        .map_err(|e| anyhow!("write {}: {e}", script_path.display()))?;
+    let meta = LocalHookMeta {
+        event: event.to_string(),
+        matcher: matcher.to_string(),
+        description: description
+            .map(|d| d.trim())
+            .filter(|d| !d.is_empty())
+            .map(str::to_string),
+    };
+    let meta_json =
+        serde_json::to_string_pretty(&meta).map_err(|e| anyhow!("serialize meta: {e}"))?;
+    fs::write(local_hook_meta_path(filename), meta_json)?;
+    Ok(())
+}
+
+/// Remove a local hook (script + sidecar). Idempotent — returns
+/// `false` if neither file existed.
+pub fn delete_local_hook(filename: &str) -> Result<bool> {
+    let script = local_hook_script_path(filename);
+    let meta = local_hook_meta_path(filename);
+    let mut removed = false;
+    if script.exists() {
+        fs::remove_file(&script)?;
+        removed = true;
+    }
+    if meta.exists() {
+        fs::remove_file(&meta)?;
+        removed = true;
+    }
+    Ok(removed)
+}
+
+/// Read a local hook's script body + metadata. `None` if missing.
+pub fn read_local_hook(filename: &str) -> Option<(String, LocalHookMeta)> {
+    let script = fs::read_to_string(local_hook_script_path(filename)).ok()?;
+    let meta = read_local_hook_meta(filename)?;
+    Some((script, meta))
 }
 
 pub fn list_mcp() -> Vec<McpEntry> {
@@ -1093,6 +1283,159 @@ mod tests {
             assert!(
                 entries.iter().any(|e| e.plugin == "__local__" && e.name == "my-server"),
                 "local entry missing"
+            );
+        });
+    }
+
+    // ── Local hook CRUD ───────────────────────────────────────────
+
+    #[test]
+    fn create_local_hook_writes_script_and_meta_sidecar() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            create_local_hook(
+                "block-rm.sh",
+                "PreToolUse",
+                "Bash",
+                Some("Block dangerous rm"),
+                "#!/bin/bash\nexit 0\n",
+            )
+            .unwrap();
+
+            let script = library_dir()
+                .join("hooks")
+                .join("__local__")
+                .join("block-rm.sh");
+            let meta = library_dir()
+                .join("hooks")
+                .join("__local__")
+                .join("block-rm.sh.meta.json");
+            assert!(script.exists());
+            assert!(meta.exists());
+
+            let raw = std::fs::read_to_string(&meta).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(parsed["event"].as_str(), Some("PreToolUse"));
+            assert_eq!(parsed["matcher"].as_str(), Some("Bash"));
+            assert_eq!(parsed["description"].as_str(), Some("Block dangerous rm"));
+        });
+    }
+
+    #[test]
+    fn create_local_hook_refuses_overwrite() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            create_local_hook("dup.sh", "Stop", "*", None, "#!/bin/bash\n").unwrap();
+            let err = create_local_hook("dup.sh", "Stop", "*", None, "#!/bin/bash\n")
+                .unwrap_err();
+            assert!(err.to_string().contains("already exists"));
+        });
+    }
+
+    #[test]
+    fn create_local_hook_validates_filename() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            assert!(create_local_hook("", "Stop", "*", None, "").is_err());
+            assert!(create_local_hook(".hidden", "Stop", "*", None, "").is_err());
+            assert!(create_local_hook("bad name.sh", "Stop", "*", None, "").is_err());
+            assert!(
+                create_local_hook("x.meta.json", "Stop", "*", None, "").is_err(),
+                ".meta.json suffix must be reserved"
+            );
+            // Dotted filenames OK.
+            assert!(create_local_hook("ok.py", "Stop", "*", None, "").is_ok());
+        });
+    }
+
+    #[test]
+    fn create_local_hook_requires_event() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let err = create_local_hook("x.sh", "", "*", None, "").unwrap_err();
+            assert!(err.to_string().contains("event"));
+        });
+    }
+
+    #[test]
+    fn update_local_hook_replaces_script_and_meta() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            create_local_hook("h.sh", "PreToolUse", "Bash", None, "v1").unwrap();
+            update_local_hook(
+                "h.sh",
+                "PostToolUse",
+                "Edit",
+                Some("rewritten"),
+                "v2",
+            )
+            .unwrap();
+
+            let (script, meta) = read_local_hook("h.sh").expect("present");
+            assert_eq!(script, "v2");
+            assert_eq!(meta.event, "PostToolUse");
+            assert_eq!(meta.matcher, "Edit");
+            assert_eq!(meta.description.as_deref(), Some("rewritten"));
+        });
+    }
+
+    #[test]
+    fn update_local_hook_errors_on_missing() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let err = update_local_hook("nope.sh", "Stop", "*", None, "")
+                .unwrap_err();
+            assert!(err.to_string().contains("not found"));
+        });
+    }
+
+    #[test]
+    fn delete_local_hook_removes_both_files() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            create_local_hook("rm.sh", "Stop", "*", None, "#!/bin/bash\n").unwrap();
+            let removed = delete_local_hook("rm.sh").unwrap();
+            assert!(removed);
+            assert!(!library_dir()
+                .join("hooks").join("__local__").join("rm.sh").exists());
+            assert!(!library_dir()
+                .join("hooks").join("__local__").join("rm.sh.meta.json").exists());
+            assert!(!delete_local_hook("rm.sh").unwrap()); // idempotent
+        });
+    }
+
+    #[test]
+    fn list_hooks_attaches_meta_for_local_entries_only() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            // Plugin hook — no meta tracked.
+            let plugin_dir = library_dir().join("hooks").join("postgres");
+            std::fs::create_dir_all(&plugin_dir).unwrap();
+            std::fs::write(plugin_dir.join("connect.sh"), "#!/bin/sh\n").unwrap();
+            // Local hook — meta written.
+            create_local_hook("mine.sh", "Stop", "*", None, "#!/bin/sh\n").unwrap();
+
+            let hooks = list_hooks();
+            let plugin = hooks
+                .iter()
+                .find(|h| h.plugin == "postgres" && h.filename == "connect.sh")
+                .expect("plugin hook");
+            assert!(plugin.meta.is_none());
+
+            let local = hooks
+                .iter()
+                .find(|h| h.plugin == "__local__" && h.filename == "mine.sh")
+                .expect("local hook");
+            let meta = local.meta.as_ref().expect("meta present");
+            assert_eq!(meta.event, "Stop");
+
+            // The sidecar `.meta.json` file itself must not show up as
+            // a separate "hook" entry.
+            assert!(
+                !hooks
+                    .iter()
+                    .any(|h| h.filename.ends_with(".meta.json")),
+                "sidecar leaked into list_hooks"
             );
         });
     }

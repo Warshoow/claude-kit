@@ -18,8 +18,9 @@ import {
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
 import { assetKey, bundleEntryKey, isAssetRef, LOCAL_PLUGIN } from "@/lib/types";
-import type { Asset, BundleEntryKind, BundleRef, McpEntry } from "@/lib/types";
+import type { Asset, BundleEntryKind, BundleRef, HookEntry, McpEntry } from "@/lib/types";
 import NewMcpDialog from "@/components/NewMcpDialog.vue";
+import NewHookDialog from "@/components/NewHookDialog.vue";
 import {
   groupAssets,
   loadGroupByPreference,
@@ -60,7 +61,7 @@ const props = defineProps<{ name: string }>();
 const store = useAppStore();
 const bundleStore = useBundleStore();
 const router = useRouter();
-const { bundles, library, projectPath, installedKeys, mcp } = storeToRefs(store);
+const { bundles, library, projectPath, installedKeys, mcp, hooks } = storeToRefs(store);
 
 const bundle = computed(() =>
   bundles.value.find((b) => b.name === props.name) ?? null
@@ -223,6 +224,89 @@ function mcpPreview(entry: McpEntry): string {
     }
   }
   return entry.path;
+}
+
+// ── Add hook dialog ───────────────────────────────────────────────
+//
+// Mirrors the MCP picker. Plugin hooks land in a per-plugin bucket;
+// in-app-created hooks group under "Local" and surface their event
+// and matcher inline.
+
+const addHookOpen = ref(false);
+const hookPickedKeys = ref<Set<string>>(new Set());
+const newHookOpen = ref(false);
+
+function hookRefFromEntry(entry: HookEntry): BundleRef {
+  return entry.plugin === LOCAL_PLUGIN
+    ? { kind: "hooks", name: entry.filename }
+    : { kind: "hooks", name: entry.filename, plugin: entry.plugin };
+}
+
+const candidateHooks = computed<HookEntry[]>(() =>
+  hooks.value.filter(
+    (h) => !bundleAssetKeys.value.has(bundleEntryKey(hookRefFromEntry(h))),
+  ),
+);
+
+const candidateHooksByPlugin = computed(() => {
+  const groups = new Map<string, HookEntry[]>();
+  for (const h of candidateHooks.value) {
+    const key = h.plugin === LOCAL_PLUGIN ? "Local" : h.plugin;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(h);
+  }
+  return Array.from(groups.entries()).sort(([a], [b]) => {
+    if (a === "Local") return 1;
+    if (b === "Local") return -1;
+    return a.localeCompare(b);
+  });
+});
+
+function openAddHook() {
+  hookPickedKeys.value = new Set();
+  addHookOpen.value = true;
+  store.refreshHooksMcp();
+}
+
+function toggleHookPick(entry: HookEntry) {
+  const k = bundleEntryKey(hookRefFromEntry(entry));
+  const next = new Set(hookPickedKeys.value);
+  if (next.has(k)) next.delete(k);
+  else next.add(k);
+  hookPickedKeys.value = next;
+}
+
+async function commitAddHook() {
+  if (!bundle.value || hookPickedKeys.value.size === 0) return;
+  const newRefs: BundleRef[] = candidateHooks.value
+    .filter((h) => hookPickedKeys.value.has(bundleEntryKey(hookRefFromEntry(h))))
+    .map(hookRefFromEntry);
+  await bundleStore.updateBundle({
+    ...bundle.value,
+    assets: [...bundle.value.assets, ...newRefs],
+  });
+  addHookOpen.value = false;
+}
+
+async function onHookSaved(filename: string) {
+  await store.refreshHooksMcp();
+  hookPickedKeys.value = new Set([
+    ...hookPickedKeys.value,
+    bundleEntryKey({ kind: "hooks", name: filename }),
+  ]);
+}
+
+function hookPreview(entry: HookEntry): string {
+  if (entry.meta) {
+    const matcher = entry.meta.matcher && entry.meta.matcher !== "*"
+      ? entry.meta.matcher
+      : "any tool";
+    const desc = entry.meta.description ? ` — ${entry.meta.description}` : "";
+    return `${entry.meta.event} · ${matcher}${desc}`;
+  }
+  // Plugin hooks: peek at the shebang as a quick hint.
+  const firstLine = entry.content.split("\n", 1)[0] ?? "";
+  return firstLine.startsWith("#!") ? firstLine : "(script)";
 }
 
 // ── Remove asset from bundle ──────────────────────────────────────
@@ -401,6 +485,10 @@ function kindLabel(kind: BundleEntryKind): string {
               {{ bundle.assets.length }} asset{{ bundle.assets.length === 1 ? "" : "s" }}
             </Badge>
             <div class="flex-1" />
+            <Button size="sm" variant="outline" @click="openAddHook">
+              <Plus />
+              Add hook
+            </Button>
             <Button size="sm" variant="outline" @click="openAddMcp">
               <Plus />
               Add MCP
@@ -671,6 +759,96 @@ function kindLabel(kind: BundleEntryKind): string {
 
     <!-- Create MCP dialog (nested entry-point from the picker) -->
     <NewMcpDialog v-model:open="newMcpOpen" @saved="onMcpSaved" />
+
+    <!-- Add hook dialog -->
+    <Dialog v-model:open="addHookOpen">
+      <DialogContent class="overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader class="border-b px-6 py-4">
+          <DialogTitle>Add hooks to {{ bundle?.name }}</DialogTitle>
+          <DialogDescription>
+            Pick hook scripts to include. Plugin-shipped hooks come grouped by
+            their source; AI-generated and manual entries live under
+            <strong>Local</strong>. Local hooks are auto-registered in
+            <code>.claude/settings.json</code> on apply.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="border-b bg-card/30 px-6 py-2.5">
+          <Button size="sm" variant="outline" @click="newHookOpen = true">
+            <Plus />
+            Create new hook (AI)
+          </Button>
+        </div>
+
+        <ScrollArea class="max-h-[60vh]">
+          <div class="px-6 py-4">
+            <div
+              v-if="hooks.length === 0"
+              class="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground"
+            >
+              No hooks yet. Use <strong>Create new hook</strong> above or
+              import a plugin that ships some.
+            </div>
+            <div
+              v-else-if="candidateHooks.length === 0"
+              class="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground"
+            >
+              All available hooks are already in this bundle.
+            </div>
+            <div v-else class="space-y-4">
+              <div
+                v-for="[groupName, entries] in candidateHooksByPlugin"
+                :key="groupName"
+                class="space-y-2"
+              >
+                <div class="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span>{{ groupName }}</span>
+                  <span class="font-mono">{{ entries.length }}</span>
+                </div>
+                <label
+                  v-for="entry in entries"
+                  :key="bundleEntryKey(hookRefFromEntry(entry))"
+                  class="flex cursor-pointer items-start gap-3 rounded-md border bg-card/40 px-3 py-2 transition-colors hover:bg-card/60"
+                >
+                  <Checkbox
+                    :model-value="hookPickedKeys.has(bundleEntryKey(hookRefFromEntry(entry)))"
+                    @update:model-value="() => toggleHookPick(entry)"
+                    class="mt-0.5"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <Badge variant="outline" class="text-[10px]">Hook</Badge>
+                      <span class="truncate font-mono text-[13px] font-medium">
+                        {{ entry.filename }}
+                      </span>
+                    </div>
+                    <p class="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+                      {{ hookPreview(entry) }}
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+
+        <Separator />
+        <DialogFooter class="px-6 py-3 sm:justify-between">
+          <span class="text-xs text-muted-foreground">
+            {{ hookPickedKeys.size }} selected
+          </span>
+          <div class="flex gap-2">
+            <Button variant="outline" @click="addHookOpen = false">Cancel</Button>
+            <Button :disabled="hookPickedKeys.size === 0" @click="commitAddHook">
+              Add {{ hookPickedKeys.size > 0 ? `(${hookPickedKeys.size})` : "" }}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Create hook dialog (nested entry-point from the picker) -->
+    <NewHookDialog v-model:open="newHookOpen" @saved="onHookSaved" />
 
     <!-- Share dialog -->
     <Dialog v-model:open="shareOpen">

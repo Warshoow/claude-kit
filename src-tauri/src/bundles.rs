@@ -1,5 +1,5 @@
 use crate::library::{bundles_dir, library_dir, mark_harmonized, read_harmonized, read_origins,
-                     set_origin, AssetKind, Origin, LOCAL_PLUGIN};
+                     set_origin, AssetKind, LocalHookMeta, Origin, LOCAL_PLUGIN};
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
@@ -165,13 +165,18 @@ pub struct SharedAsset {
     pub name: String,
     pub content: String,
     /// Plugin folder name for hooks/mcp entries; absent for skills/
-    /// commands/agents and for future flat hooks/mcp.
+    /// commands/agents and for flat (local) hooks/mcp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harmonized_at: Option<String>,
+    /// Sidecar metadata for local hook entries (event/matcher) so the
+    /// recipient can re-create the `.meta.json` alongside the script.
+    /// Always `None` for non-local-hook entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_meta: Option<LocalHookMeta>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -250,6 +255,13 @@ pub fn encode_bundle_share(bundle_name: &str) -> Result<String> {
             }
             None => (None, None),
         };
+        // Carry sidecar metadata for in-app-created hooks so the
+        // recipient gets a working `.meta.json` next to the script.
+        let hook_meta = if r.kind == BundleEntryKind::Hooks && r.plugin.is_none() {
+            crate::library::read_local_hook(&r.name).map(|(_, m)| m)
+        } else {
+            None
+        };
         assets.push(SharedAsset {
             kind: r.kind,
             name: r.name.clone(),
@@ -257,6 +269,7 @@ pub fn encode_bundle_share(bundle_name: &str) -> Result<String> {
             plugin: r.plugin.clone(),
             origin,
             harmonized_at,
+            hook_meta,
         });
     }
 
@@ -318,6 +331,22 @@ pub fn import_bundle_share(code: &str) -> Result<ImportShareResult> {
                 mark_harmonized(asset_kind, &asset.name, harmonized_at)?;
             }
         }
+        // Restore the sidecar metadata file for local hooks so the
+        // recipient's `list_hooks` finds the event/matcher pair.
+        if let (BundleEntryKind::Hooks, None, Some(meta)) =
+            (asset.kind, asset.plugin.as_ref(), asset.hook_meta.as_ref())
+        {
+            let meta_path = library_dir()
+                .join("hooks")
+                .join(LOCAL_PLUGIN)
+                .join(format!("{}.meta.json", asset.name));
+            if let Some(parent) = meta_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let meta_json = serde_json::to_string_pretty(meta)
+                .map_err(|e| anyhow!("serialize hook meta: {e}"))?;
+            fs::write(&meta_path, meta_json)?;
+        }
         imported.push(label);
     }
 
@@ -375,6 +404,7 @@ mod tests {
             plugin: None,
             origin: None,
             harmonized_at: None,
+            hook_meta: None,
         }
     }
 
@@ -414,6 +444,7 @@ mod tests {
             plugin: None,
             origin: None,
             harmonized_at: None,
+            hook_meta: None,
         };
         let json = serde_json::to_string(&asset).unwrap();
         assert!(!json.contains("origin"), "None origin must be omitted");
@@ -517,6 +548,7 @@ mod tests {
                     plugin: None,
                     origin: None,
                     harmonized_at: None,
+                    hook_meta: None,
                 }],
             };
             let code = encode_manifest(&manifest);
@@ -545,6 +577,7 @@ mod tests {
                     plugin: None,
                     origin: None,
                     harmonized_at: None,
+                    hook_meta: None,
                 }],
             };
             let code = encode_manifest(&manifest);

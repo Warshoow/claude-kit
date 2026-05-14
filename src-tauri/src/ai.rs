@@ -456,6 +456,45 @@ fn stream_via_api(
     Ok(accumulated)
 }
 
+/// One-shot generation of a Claude Code hook script body. Returns the
+/// raw script text (no fences, no commentary) — the caller pairs it
+/// with metadata (event/matcher) when writing to disk.
+pub fn generate_hook_script(
+    event: &str,
+    matcher: &str,
+    prompt: &str,
+) -> Result<String> {
+    if prompt.trim().is_empty() {
+        return Err(anyhow!("prompt is empty"));
+    }
+    if event.trim().is_empty() {
+        return Err(anyhow!("event is required"));
+    }
+    let system = "You generate a single Claude Code hook script. \
+        A hook is a script claude-code runs on a specific event (PreToolUse, \
+        PostToolUse, Stop, SubagentStop, Notification, UserPromptSubmit, \
+        PreCompact, SessionStart, SessionEnd) optionally filtered by a tool-name \
+        matcher (a regex, or '*' / empty for any tool). The runtime invokes the \
+        script directly and feeds it a JSON payload on stdin describing the event. \
+        Exit 0 means continue normally; exit 2 means block the tool call with the \
+        script's stderr surfaced to the user; other non-zero exit codes mean \
+        non-blocking error. Output ONLY the raw script body — start with an \
+        appropriate shebang line, do NOT wrap in code fences, no commentary before \
+        or after. Prefer bash for simple cases; use python or node when the task \
+        clearly needs richer logic. Read stdin if you need the event payload.";
+    let matcher_clause = if matcher.trim().is_empty() || matcher == "*" {
+        "(any tool)".to_string()
+    } else {
+        format!("matching `{matcher}`")
+    };
+    let user = format!(
+        "Event: {event} {matcher_clause}\n\nIntent: {}\n\nWrite the script now.",
+        prompt.trim()
+    );
+    let raw = generate_text(system, &user)?;
+    Ok(strip_code_fences(&raw))
+}
+
 pub fn generate_asset(
     kind: AssetKind,
     prompt: &str,

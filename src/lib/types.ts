@@ -50,7 +50,34 @@ export interface HookEntry {
   filename: string;
   path: string;
   content: string;
+  /** Sidecar metadata — only set for hooks created in-app
+   *  (plugin == "__local__"). */
+  meta?: LocalHookMeta;
 }
+
+export interface LocalHookMeta {
+  /** Claude Code event name: "PreToolUse", "PostToolUse", "Stop", etc. */
+  event: string;
+  /** Tool-name matcher pattern. Empty / "*" means any tool. */
+  matcher: string;
+  description?: string;
+}
+
+/** Event names exposed by Claude Code's hook system. The Rust side
+ *  accepts any string for forward-compat, but the UI shows this list
+ *  as a select. Keep in sync with upstream documentation. */
+export const HOOK_EVENTS = [
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "Notification",
+  "UserPromptSubmit",
+  "PreCompact",
+  "SessionStart",
+  "SessionEnd",
+] as const;
+export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 export interface McpEntry {
   /** Plugin folder name, or `"__local__"` for entries created in-app

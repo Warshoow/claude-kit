@@ -73,6 +73,47 @@ export const api = {
     invoke<void>("apply_mcp_cmd", { projectPath, plugin }),
   applyMcpLocal: (projectPath: string, name: string) =>
     invoke<void>("apply_mcp_local_cmd", { projectPath, name }),
+  applyHookLocal: (projectPath: string, filename: string) =>
+    invoke<void>("apply_hook_local_cmd", { projectPath, filename }),
+  removeHookLocal: (projectPath: string, filename: string) =>
+    invoke<boolean>("remove_hook_local_cmd", { projectPath, filename }),
+  createLocalHook: (
+    filename: string,
+    event: string,
+    matcher: string,
+    description: string | undefined,
+    script: string,
+  ) =>
+    invoke<void>("create_local_hook_cmd", {
+      filename,
+      event,
+      matcher,
+      description,
+      script,
+    }),
+  updateLocalHook: (
+    filename: string,
+    event: string,
+    matcher: string,
+    description: string | undefined,
+    script: string,
+  ) =>
+    invoke<void>("update_local_hook_cmd", {
+      filename,
+      event,
+      matcher,
+      description,
+      script,
+    }),
+  deleteLocalHook: (filename: string) =>
+    invoke<boolean>("delete_local_hook_cmd", { filename }),
+  readLocalHook: (filename: string) =>
+    invoke<{ script: string; meta: { event: string; matcher: string; description?: string } } | null>(
+      "read_local_hook_cmd",
+      { filename },
+    ),
+  aiGenerateHook: (event: string, matcher: string, prompt: string) =>
+    invoke<string>("ai_generate_hook", { event, matcher, prompt }),
   createLocalMcp: (name: string, serverConfig: unknown) =>
     invoke<void>("create_local_mcp_cmd", { name, serverConfig }),
   updateLocalMcp: (name: string, serverConfig: unknown) =>

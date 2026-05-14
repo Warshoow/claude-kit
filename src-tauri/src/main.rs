@@ -95,13 +95,13 @@ fn apply_bundle(
         let result: Result<(), anyhow::Error> = match a.kind.as_asset_kind() {
             // Skills / commands / agents — symlink the markdown asset.
             Some(asset_kind) => project::apply_one(&project, asset_kind, &a.name, false),
-            // Hooks: symlink the script. Step 1 requires `plugin` to
-            // be set (flat layout comes with the AI-hook UI later).
+            // Hooks: symlink the script. Plugin-scoped → just the
+            // symlink (plugin's own config tells claude-code when to
+            // run it). Local → symlink + auto-register in the
+            // project's settings.json using the sidecar meta.
             None if a.kind == bundles::BundleEntryKind::Hooks => match &a.plugin {
                 Some(plugin) => project::apply_hook(&project, plugin, &a.name),
-                None => Err(anyhow::anyhow!(
-                    "hook ref missing plugin — flat hooks not supported yet"
-                )),
+                None => project::apply_hook_local(&project, &a.name),
             },
             // MCP: merge servers into project's .claude/mcp.json.
             // Plugin-scoped → reads `mcp/<plugin>.json` whole; local →
@@ -238,6 +238,79 @@ fn list_installed_hooks_cmd(project_path: String) -> Vec<InstalledHook> {
 #[tauri::command]
 fn apply_mcp_cmd(project_path: String, plugin: String) -> Result<(), String> {
     project::apply_mcp(&PathBuf::from(project_path), &plugin).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn apply_hook_local_cmd(project_path: String, filename: String) -> Result<(), String> {
+    project::apply_hook_local(&PathBuf::from(project_path), &filename)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_hook_local_cmd(project_path: String, filename: String) -> Result<bool, String> {
+    project::remove_hook_local(&PathBuf::from(project_path), &filename)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_local_hook_cmd(
+    filename: String,
+    event: String,
+    matcher: String,
+    description: Option<String>,
+    script: String,
+) -> Result<(), String> {
+    library::create_local_hook(
+        &filename,
+        &event,
+        &matcher,
+        description.as_deref(),
+        &script,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_local_hook_cmd(
+    filename: String,
+    event: String,
+    matcher: String,
+    description: Option<String>,
+    script: String,
+) -> Result<(), String> {
+    library::update_local_hook(
+        &filename,
+        &event,
+        &matcher,
+        description.as_deref(),
+        &script,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_local_hook_cmd(filename: String) -> Result<bool, String> {
+    library::delete_local_hook(&filename).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct LocalHookReadResult {
+    script: String,
+    meta: library::LocalHookMeta,
+}
+
+#[tauri::command]
+fn read_local_hook_cmd(filename: String) -> Option<LocalHookReadResult> {
+    library::read_local_hook(&filename).map(|(script, meta)| LocalHookReadResult { script, meta })
+}
+
+#[tauri::command]
+fn ai_generate_hook(
+    event: String,
+    matcher: String,
+    prompt: String,
+) -> Result<String, String> {
+    ai::generate_hook_script(&event, &matcher, &prompt).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -482,6 +555,13 @@ fn main() {
             update_local_mcp_cmd,
             delete_local_mcp_cmd,
             read_local_mcp_cmd,
+            apply_hook_local_cmd,
+            remove_hook_local_cmd,
+            create_local_hook_cmd,
+            update_local_hook_cmd,
+            delete_local_hook_cmd,
+            read_local_hook_cmd,
+            ai_generate_hook,
             remove_plugin_cmd,
             ai_status_cmd,
             ai_generate,

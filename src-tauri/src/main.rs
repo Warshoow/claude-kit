@@ -103,13 +103,13 @@ fn apply_bundle(
                     "hook ref missing plugin — flat hooks not supported yet"
                 )),
             },
-            // MCP: merge the plugin's whole .mcp.json into project's
-            // .claude/mcp.json. Same step-1 restriction.
+            // MCP: merge servers into project's .claude/mcp.json.
+            // Plugin-scoped → reads `mcp/<plugin>.json` whole; local →
+            // reads `mcp/__local__/<name>.json` (one-server-per-file
+            // shape produced by the manual create flow).
             None if a.kind == bundles::BundleEntryKind::Mcp => match &a.plugin {
                 Some(plugin) => project::apply_mcp(&project, plugin),
-                None => Err(anyhow::anyhow!(
-                    "mcp ref missing plugin — flat mcp not supported yet"
-                )),
+                None => project::apply_mcp_local(&project, &a.name),
             },
             None => unreachable!("BundleEntryKind covered above"),
         };
@@ -238,6 +238,37 @@ fn list_installed_hooks_cmd(project_path: String) -> Vec<InstalledHook> {
 #[tauri::command]
 fn apply_mcp_cmd(project_path: String, plugin: String) -> Result<(), String> {
     project::apply_mcp(&PathBuf::from(project_path), &plugin).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn apply_mcp_local_cmd(project_path: String, name: String) -> Result<(), String> {
+    project::apply_mcp_local(&PathBuf::from(project_path), &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_local_mcp_cmd(
+    name: String,
+    server_config: serde_json::Value,
+) -> Result<(), String> {
+    library::create_local_mcp(&name, server_config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_local_mcp_cmd(
+    name: String,
+    server_config: serde_json::Value,
+) -> Result<(), String> {
+    library::update_local_mcp(&name, server_config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_local_mcp_cmd(name: String) -> Result<bool, String> {
+    library::delete_local_mcp(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn read_local_mcp_cmd(name: String) -> Option<serde_json::Value> {
+    library::read_local_mcp(&name)
 }
 
 #[tauri::command]
@@ -446,6 +477,11 @@ fn main() {
             remove_hook_cmd,
             list_installed_hooks_cmd,
             apply_mcp_cmd,
+            apply_mcp_local_cmd,
+            create_local_mcp_cmd,
+            update_local_mcp_cmd,
+            delete_local_mcp_cmd,
+            read_local_mcp_cmd,
             remove_plugin_cmd,
             ai_status_cmd,
             ai_generate,

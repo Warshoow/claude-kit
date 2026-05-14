@@ -71,6 +71,16 @@ export const api = {
     invoke<InstalledHook[]>("list_installed_hooks_cmd", { projectPath }),
   applyMcp: (projectPath: string, plugin: string) =>
     invoke<void>("apply_mcp_cmd", { projectPath, plugin }),
+  applyMcpLocal: (projectPath: string, name: string) =>
+    invoke<void>("apply_mcp_local_cmd", { projectPath, name }),
+  createLocalMcp: (name: string, serverConfig: unknown) =>
+    invoke<void>("create_local_mcp_cmd", { name, serverConfig }),
+  updateLocalMcp: (name: string, serverConfig: unknown) =>
+    invoke<void>("update_local_mcp_cmd", { name, serverConfig }),
+  deleteLocalMcp: (name: string) =>
+    invoke<boolean>("delete_local_mcp_cmd", { name }),
+  readLocalMcp: (name: string) =>
+    invoke<unknown | null>("read_local_mcp_cmd", { name }),
   removePlugin: (pluginName: string) =>
     invoke<number>("remove_plugin_cmd", { pluginName }),
   encodeBundleShare: (name: string) =>

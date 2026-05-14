@@ -176,9 +176,20 @@ pub struct HookEntry {
     pub content: String,
 }
 
+/// Sentinel "plugin" name used for entries the user created locally
+/// (manual MCP, AI-generated hooks). Persisted on disk as a real
+/// subdirectory (`library/mcp/__local__/` or `library/hooks/__local__/`).
+pub const LOCAL_PLUGIN: &str = "__local__";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpEntry {
+    /// Plugin folder name, or `LOCAL_PLUGIN` ("__local__") for entries
+    /// created in-app via the manual MCP dialog.
     pub plugin: String,
+    /// File basename without `.json`. For plugin entries this equals
+    /// `plugin`; for local entries it's the chosen server slug.
+    #[serde(default)]
+    pub name: String,
     pub path: String,
     pub servers: serde_json::Value,
 }
@@ -218,28 +229,160 @@ pub fn list_hooks() -> Vec<HookEntry> {
 pub fn list_mcp() -> Vec<McpEntry> {
     let mcp_dir = library_dir().join("mcp");
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(&mcp_dir) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        if !path.is_file() || !name.ends_with(".json") {
-            continue;
+
+    // 1. Top-level `<plugin>.json` files — these come from imported
+    //    plugins (one file per plugin, potentially many servers each).
+    if let Ok(entries) = fs::read_dir(&mcp_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !path.is_file() || !name.ends_with(".json") {
+                continue;
+            }
+            let plugin = name.trim_end_matches(".json").to_string();
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let servers: serde_json::Value = serde_json::from_str(&content)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            out.push(McpEntry {
+                name: plugin.clone(),
+                plugin,
+                path: path.to_string_lossy().to_string(),
+                servers,
+            });
         }
-        let plugin = name.trim_end_matches(".json").to_string();
-        let Ok(content) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let servers: serde_json::Value = serde_json::from_str(&content).unwrap_or(serde_json::Value::Object(Default::default()));
-        out.push(McpEntry {
-            plugin,
-            path: path.to_string_lossy().to_string(),
-            servers,
-        });
     }
-    out.sort_by(|a, b| a.plugin.cmp(&b.plugin));
+
+    // 2. `__local__/<name>.json` — entries the user created in-app.
+    //    One server per file. Surfaced under the `__local__` plugin
+    //    sentinel so the existing plugin-grouped UI naturally renders
+    //    them in a separate bucket.
+    let local_dir = mcp_dir.join(LOCAL_PLUGIN);
+    if let Ok(entries) = fs::read_dir(&local_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let filename = entry.file_name().to_string_lossy().to_string();
+            if !path.is_file() || !filename.ends_with(".json") {
+                continue;
+            }
+            let name = filename.trim_end_matches(".json").to_string();
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let servers: serde_json::Value = serde_json::from_str(&content)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            out.push(McpEntry {
+                plugin: LOCAL_PLUGIN.to_string(),
+                name,
+                path: path.to_string_lossy().to_string(),
+                servers,
+            });
+        }
+    }
+
+    out.sort_by(|a, b| {
+        a.plugin
+            .cmp(&b.plugin)
+            .then_with(|| a.name.cmp(&b.name))
+    });
     out
+}
+
+// ── Local MCP CRUD ────────────────────────────────────────────────
+//
+// Local MCPs are stored at `library/mcp/__local__/<name>.json` with
+// the standard claude-code shape:
+//   {"mcpServers": {"<name>": <config>}}
+//
+// Writing creates the file (refuses overwrite). Deleting just removes
+// it. Listing happens via `list_mcp`, which folds them in alongside
+// plugin MCPs.
+
+/// JSON path for a local MCP entry. Server name doubles as the file
+/// basename, so the slug rules from `validate_asset_name` apply.
+fn local_mcp_path(name: &str) -> PathBuf {
+    library_dir()
+        .join("mcp")
+        .join(LOCAL_PLUGIN)
+        .join(format!("{name}.json"))
+}
+
+/// Create a local MCP entry. `server_config` is the inner config
+/// (`{command, args, env, ...}`) — we wrap it in the standard
+/// `{"mcpServers": {<name>: ...}}` envelope before writing.
+///
+/// Refuses overwrites and collisions with an existing plugin MCP of
+/// the same name (since both live in the same `mcp/` directory and
+/// the project-merge step would otherwise be ambiguous).
+pub fn create_local_mcp(name: &str, server_config: serde_json::Value) -> Result<()> {
+    validate_asset_name(name)?;
+    if name == LOCAL_PLUGIN {
+        return Err(anyhow!("'__local__' is reserved"));
+    }
+    let plugin_path = library_dir().join("mcp").join(format!("{name}.json"));
+    if plugin_path.exists() {
+        return Err(anyhow!(
+            "an imported plugin MCP already uses the name '{name}' — pick another"
+        ));
+    }
+    let target = local_mcp_path(name);
+    if target.exists() {
+        return Err(anyhow!("local MCP '{name}' already exists"));
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let wrapped = serde_json::json!({
+        "mcpServers": {
+            name: server_config,
+        }
+    });
+    let pretty = serde_json::to_string_pretty(&wrapped)
+        .map_err(|e| anyhow!("serialize MCP: {e}"))?;
+    fs::write(&target, pretty).map_err(|e| anyhow!("write {}: {e}", target.display()))?;
+    Ok(())
+}
+
+/// Replace the server config of an existing local MCP. Re-wraps the
+/// payload the same way `create_local_mcp` does.
+pub fn update_local_mcp(name: &str, server_config: serde_json::Value) -> Result<()> {
+    validate_asset_name(name)?;
+    let target = local_mcp_path(name);
+    if !target.exists() {
+        return Err(anyhow!("local MCP '{name}' not found"));
+    }
+    let wrapped = serde_json::json!({
+        "mcpServers": {
+            name: server_config,
+        }
+    });
+    let pretty = serde_json::to_string_pretty(&wrapped)
+        .map_err(|e| anyhow!("serialize MCP: {e}"))?;
+    fs::write(&target, pretty).map_err(|e| anyhow!("write {}: {e}", target.display()))?;
+    Ok(())
+}
+
+pub fn delete_local_mcp(name: &str) -> Result<bool> {
+    let target = local_mcp_path(name);
+    if !target.exists() {
+        return Ok(false);
+    }
+    fs::remove_file(&target).map_err(|e| anyhow!("delete {}: {e}", target.display()))?;
+    Ok(true)
+}
+
+/// Read the raw inner server config of a local MCP — what the user
+/// originally entered, without the outer `mcpServers` envelope.
+/// Returns `None` if the file is absent or malformed.
+pub fn read_local_mcp(name: &str) -> Option<serde_json::Value> {
+    let target = local_mcp_path(name);
+    let content = fs::read_to_string(&target).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+    parsed
+        .get("mcpServers")
+        .and_then(|m| m.get(name))
+        .cloned()
 }
 
 pub fn ensure_layout() -> Result<()> {
@@ -248,6 +391,10 @@ pub fn ensure_layout() -> Result<()> {
     }
     fs::create_dir_all(library_dir().join("hooks"))?;
     fs::create_dir_all(library_dir().join("mcp"))?;
+    // Buckets for in-app-created entries — created eagerly so the
+    // scanner finds the dir even on a fresh install.
+    fs::create_dir_all(library_dir().join("mcp").join(LOCAL_PLUGIN))?;
+    fs::create_dir_all(library_dir().join("hooks").join(LOCAL_PLUGIN))?;
     fs::create_dir_all(bundles_dir())?;
     Ok(())
 }
@@ -800,6 +947,153 @@ mod tests {
 
             let result = import_from_plugin(plugin_dir.path(), Some("my-mcp-plugin")).unwrap();
             assert!(result.imported.contains(&"mcp/my-mcp-plugin.json".to_string()));
+        });
+    }
+
+    // ── Local MCP CRUD ────────────────────────────────────────────
+
+    #[test]
+    fn create_local_mcp_writes_wrapped_json() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let cfg = serde_json::json!({
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-pg"],
+                "env": { "POSTGRES_URL": "postgres://x" }
+            });
+            create_local_mcp("my-pg", cfg.clone()).unwrap();
+
+            let p = library_dir().join("mcp").join("__local__").join("my-pg.json");
+            assert!(p.exists());
+            let raw = std::fs::read_to_string(&p).unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            assert_eq!(
+                parsed["mcpServers"]["my-pg"]["command"].as_str(),
+                Some("npx")
+            );
+        });
+    }
+
+    #[test]
+    fn create_local_mcp_refuses_overwrite() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let cfg = serde_json::json!({"command": "node"});
+            create_local_mcp("dup", cfg.clone()).unwrap();
+            let err = create_local_mcp("dup", cfg).unwrap_err();
+            assert!(err.to_string().contains("already exists"));
+        });
+    }
+
+    #[test]
+    fn create_local_mcp_refuses_plugin_name_collision() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            // Pre-occupy the plugin slot at `mcp/playwright.json`.
+            std::fs::write(
+                library_dir().join("mcp").join("playwright.json"),
+                r#"{"mcpServers":{}}"#,
+            )
+            .unwrap();
+
+            let cfg = serde_json::json!({"command": "node"});
+            let err = create_local_mcp("playwright", cfg).unwrap_err();
+            assert!(
+                err.to_string().contains("imported plugin MCP"),
+                "got: {err}"
+            );
+        });
+    }
+
+    #[test]
+    fn create_local_mcp_validates_name() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let cfg = serde_json::json!({"command": "node"});
+            assert!(create_local_mcp("has spaces", cfg.clone()).is_err());
+            assert!(create_local_mcp("__local__", cfg.clone()).is_err());
+            assert!(create_local_mcp("", cfg).is_err());
+        });
+    }
+
+    #[test]
+    fn update_local_mcp_replaces_config() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            create_local_mcp("x", serde_json::json!({"command": "v1"})).unwrap();
+            update_local_mcp("x", serde_json::json!({"command": "v2"})).unwrap();
+            let cfg = read_local_mcp("x").expect("present");
+            assert_eq!(cfg["command"].as_str(), Some("v2"));
+        });
+    }
+
+    #[test]
+    fn update_local_mcp_errors_on_missing() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let err = update_local_mcp("nope", serde_json::json!({})).unwrap_err();
+            assert!(err.to_string().contains("not found"));
+        });
+    }
+
+    #[test]
+    fn delete_local_mcp_removes_file() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            create_local_mcp("rm", serde_json::json!({"command": "node"})).unwrap();
+            let removed = delete_local_mcp("rm").unwrap();
+            assert!(removed);
+            assert!(!library_dir().join("mcp").join("__local__").join("rm.json").exists());
+            // Idempotent: second delete returns false.
+            assert!(!delete_local_mcp("rm").unwrap());
+        });
+    }
+
+    #[test]
+    fn read_local_mcp_returns_inner_config() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            let cfg = serde_json::json!({
+                "command": "uvx",
+                "args": ["server"],
+            });
+            create_local_mcp("r", cfg.clone()).unwrap();
+            let got = read_local_mcp("r").expect("present");
+            assert_eq!(got, cfg);
+        });
+    }
+
+    #[test]
+    fn read_local_mcp_returns_none_for_missing() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            assert!(read_local_mcp("nope").is_none());
+        });
+    }
+
+    #[test]
+    fn list_mcp_includes_both_plugin_and_local_buckets() {
+        with_temp_home(|| {
+            ensure_layout().unwrap();
+            // Plugin MCP
+            std::fs::write(
+                library_dir().join("mcp").join("playwright.json"),
+                r#"{"mcpServers":{"playwright":{"command":"npx"}}}"#,
+            )
+            .unwrap();
+            // Local MCP
+            create_local_mcp("my-server", serde_json::json!({"command":"node"})).unwrap();
+
+            let entries = list_mcp();
+            // Both should be present; sorted by plugin then name.
+            assert!(
+                entries.iter().any(|e| e.plugin == "playwright"),
+                "plugin entry missing"
+            );
+            assert!(
+                entries.iter().any(|e| e.plugin == "__local__" && e.name == "my-server"),
+                "local entry missing"
+            );
         });
     }
 }

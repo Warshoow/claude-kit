@@ -17,8 +17,9 @@ import {
 } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
-import { assetKey, bundleEntryKey, isAssetRef } from "@/lib/types";
-import type { Asset, BundleEntryKind, BundleRef } from "@/lib/types";
+import { assetKey, bundleEntryKey, isAssetRef, LOCAL_PLUGIN } from "@/lib/types";
+import type { Asset, BundleEntryKind, BundleRef, McpEntry } from "@/lib/types";
+import NewMcpDialog from "@/components/NewMcpDialog.vue";
 import {
   groupAssets,
   loadGroupByPreference,
@@ -59,7 +60,7 @@ const props = defineProps<{ name: string }>();
 const store = useAppStore();
 const bundleStore = useBundleStore();
 const router = useRouter();
-const { bundles, library, projectPath, installedKeys } = storeToRefs(store);
+const { bundles, library, projectPath, installedKeys, mcp } = storeToRefs(store);
 
 const bundle = computed(() =>
   bundles.value.find((b) => b.name === props.name) ?? null
@@ -128,6 +129,100 @@ async function commitAdd() {
     assets: [...bundle.value.assets, ...newRefs],
   });
   addOpen.value = false;
+}
+
+// ── Add MCP dialog ────────────────────────────────────────────────
+//
+// Lists every MCP entry from the library (plugin-shipped under their
+// own bucket, locally-created entries grouped under "Local"). The
+// "+ Create new MCP" button below opens NewMcpDialog inline — once the
+// user saves, the new entry shows up in the list and is auto-picked.
+
+const addMcpOpen = ref(false);
+const mcpPickedKeys = ref<Set<string>>(new Set());
+const newMcpOpen = ref(false);
+
+// Stable key for selection — matches the bundle ref shape so we can
+// reuse `bundleEntryKey` for de-dup against what's already in the bundle.
+function mcpRefFromEntry(entry: McpEntry): BundleRef {
+  return entry.plugin === LOCAL_PLUGIN
+    ? { kind: "mcp", name: entry.name }
+    : { kind: "mcp", name: entry.name, plugin: entry.plugin };
+}
+
+const candidateMcps = computed<McpEntry[]>(() =>
+  mcp.value.filter((e) => !bundleAssetKeys.value.has(bundleEntryKey(mcpRefFromEntry(e)))),
+);
+
+// Group by plugin (Local bucket gets a friendly label).
+const candidateMcpsByPlugin = computed(() => {
+  const groups = new Map<string, McpEntry[]>();
+  for (const e of candidateMcps.value) {
+    const key = e.plugin === LOCAL_PLUGIN ? "Local" : e.plugin;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(e);
+  }
+  return Array.from(groups.entries()).sort(([a], [b]) => {
+    // Local bucket at the bottom for grouping consistency with browse-library.
+    if (a === "Local") return 1;
+    if (b === "Local") return -1;
+    return a.localeCompare(b);
+  });
+});
+
+function openAddMcp() {
+  mcpPickedKeys.value = new Set();
+  addMcpOpen.value = true;
+  store.refreshHooksMcp();
+}
+
+function toggleMcpPick(entry: McpEntry) {
+  const k = bundleEntryKey(mcpRefFromEntry(entry));
+  const next = new Set(mcpPickedKeys.value);
+  if (next.has(k)) next.delete(k);
+  else next.add(k);
+  mcpPickedKeys.value = next;
+}
+
+async function commitAddMcp() {
+  if (!bundle.value || mcpPickedKeys.value.size === 0) return;
+  const newRefs: BundleRef[] = candidateMcps.value
+    .filter((e) => mcpPickedKeys.value.has(bundleEntryKey(mcpRefFromEntry(e))))
+    .map(mcpRefFromEntry);
+  await bundleStore.updateBundle({
+    ...bundle.value,
+    assets: [...bundle.value.assets, ...newRefs],
+  });
+  addMcpOpen.value = false;
+}
+
+async function onMcpSaved(name: string) {
+  // Refresh the listing then auto-pick the entry the user just made
+  // so committing the picker now adds it to the bundle in one click.
+  await store.refreshHooksMcp();
+  mcpPickedKeys.value = new Set([
+    ...mcpPickedKeys.value,
+    bundleEntryKey({ kind: "mcp", name }),
+  ]);
+}
+
+/** Short single-line description of an MCP entry for the picker list. */
+function mcpPreview(entry: McpEntry): string {
+  const inner =
+    (entry.servers as Record<string, unknown> | undefined)?.mcpServers ??
+    entry.servers;
+  if (inner && typeof inner === "object") {
+    const obj = inner as Record<string, Record<string, unknown>>;
+    const first = obj[entry.name] ?? Object.values(obj)[0];
+    if (first && typeof first === "object") {
+      const cmd = first.command;
+      const args = Array.isArray(first.args)
+        ? ` ${(first.args as unknown[]).join(" ")}`
+        : "";
+      if (typeof cmd === "string") return `${cmd}${args}`;
+    }
+  }
+  return entry.path;
 }
 
 // ── Remove asset from bundle ──────────────────────────────────────
@@ -306,6 +401,10 @@ function kindLabel(kind: BundleEntryKind): string {
               {{ bundle.assets.length }} asset{{ bundle.assets.length === 1 ? "" : "s" }}
             </Badge>
             <div class="flex-1" />
+            <Button size="sm" variant="outline" @click="openAddMcp">
+              <Plus />
+              Add MCP
+            </Button>
             <Button size="sm" variant="outline" @click="openAdd">
               <Plus />
               Add asset
@@ -478,6 +577,100 @@ function kindLabel(kind: BundleEntryKind): string {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- Add MCP dialog -->
+    <Dialog v-model:open="addMcpOpen">
+      <DialogContent class="overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader class="border-b px-6 py-4">
+          <DialogTitle>Add MCP servers to {{ bundle?.name }}</DialogTitle>
+          <DialogDescription>
+            Pick MCP entries to include. Plugin-shipped servers come grouped by
+            their source; entries you built in-app live under <strong>Local</strong>.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="border-b bg-card/30 px-6 py-2.5">
+          <Button
+            size="sm"
+            variant="outline"
+            @click="newMcpOpen = true"
+          >
+            <Plus />
+            Create new MCP
+          </Button>
+        </div>
+
+        <ScrollArea class="max-h-[60vh]">
+          <div class="px-6 py-4">
+            <div
+              v-if="mcp.length === 0"
+              class="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground"
+            >
+              No MCP entries yet. Use <strong>Create new MCP</strong> above or
+              import a plugin that ships one.
+            </div>
+
+            <div
+              v-else-if="candidateMcps.length === 0"
+              class="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground"
+            >
+              All available MCP entries are already in this bundle.
+            </div>
+
+            <div v-else class="space-y-4">
+              <div
+                v-for="[groupName, entries] in candidateMcpsByPlugin"
+                :key="groupName"
+                class="space-y-2"
+              >
+                <div class="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span>{{ groupName }}</span>
+                  <span class="font-mono">{{ entries.length }}</span>
+                </div>
+                <label
+                  v-for="entry in entries"
+                  :key="bundleEntryKey(mcpRefFromEntry(entry))"
+                  class="flex cursor-pointer items-start gap-3 rounded-md border bg-card/40 px-3 py-2 transition-colors hover:bg-card/60"
+                >
+                  <Checkbox
+                    :model-value="mcpPickedKeys.has(bundleEntryKey(mcpRefFromEntry(entry)))"
+                    @update:model-value="() => toggleMcpPick(entry)"
+                    class="mt-0.5"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <Badge variant="outline" class="text-[10px]">MCP</Badge>
+                      <span class="truncate font-mono text-[13px] font-medium">
+                        {{ entry.name }}
+                      </span>
+                    </div>
+                    <p class="mt-0.5 line-clamp-1 font-mono text-[11px] text-muted-foreground">
+                      {{ mcpPreview(entry) }}
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+
+        <Separator />
+        <DialogFooter class="px-6 py-3 sm:justify-between">
+          <span class="text-xs text-muted-foreground">
+            {{ mcpPickedKeys.size }} selected
+          </span>
+          <div class="flex gap-2">
+            <Button variant="outline" @click="addMcpOpen = false">Cancel</Button>
+            <Button :disabled="mcpPickedKeys.size === 0" @click="commitAddMcp">
+              Add {{ mcpPickedKeys.size > 0 ? `(${mcpPickedKeys.size})` : "" }}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Create MCP dialog (nested entry-point from the picker) -->
+    <NewMcpDialog v-model:open="newMcpOpen" @saved="onMcpSaved" />
 
     <!-- Share dialog -->
     <Dialog v-model:open="shareOpen">

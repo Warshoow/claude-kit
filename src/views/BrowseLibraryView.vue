@@ -74,41 +74,32 @@ const groups = computed<PluginGroup[]>(() => {
     g.counts[a.kind]++;
   }
 
-  // Attach hook / MCP counts to the matching plugin bucket.
+  // Attach hook / MCP counts to the matching plugin bucket. The
+  // `__local__` sentinel collapses into the same "Local" bucket the
+  // markdown-asset loop creates (or makes one when only hooks/MCPs
+  // exist locally so far).
+  function ensureBucket(plugin: string): PluginGroup {
+    let g = buckets.get(plugin);
+    if (g) return g;
+    const isLocal = plugin === LOCAL_KEY;
+    g = {
+      key: plugin,
+      name: isLocal ? "Local" : plugin,
+      marketplace: null,
+      assets: [],
+      counts: { skills: 0, commands: 0, agents: 0 },
+      hookCount: 0,
+      hasMcp: false,
+      isLocal,
+    };
+    buckets.set(plugin, g);
+    return g;
+  }
   for (const h of hooks.value) {
-    let g = buckets.get(h.plugin);
-    if (!g) {
-      // Plugin only has hooks, no assets yet — create a bucket for it.
-      g = {
-        key: h.plugin,
-        name: h.plugin,
-        marketplace: null,
-        assets: [],
-        counts: { skills: 0, commands: 0, agents: 0 },
-        hookCount: 0,
-        hasMcp: false,
-        isLocal: false,
-      };
-      buckets.set(h.plugin, g);
-    }
-    g.hookCount++;
+    ensureBucket(h.plugin).hookCount++;
   }
   for (const m of mcp.value) {
-    let g = buckets.get(m.plugin);
-    if (!g) {
-      g = {
-        key: m.plugin,
-        name: m.plugin,
-        marketplace: null,
-        assets: [],
-        counts: { skills: 0, commands: 0, agents: 0 },
-        hookCount: 0,
-        hasMcp: false,
-        isLocal: false,
-      };
-      buckets.set(m.plugin, g);
-    }
-    g.hasMcp = true;
+    ensureBucket(m.plugin).hasMcp = true;
   }
 
   return Array.from(buckets.values()).sort((a, b) => {

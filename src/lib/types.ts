@@ -53,10 +53,18 @@ export interface HookEntry {
 }
 
 export interface McpEntry {
+  /** Plugin folder name, or `"__local__"` for entries created in-app
+   * via the manual MCP dialog. */
   plugin: string;
+  /** File basename (without `.json`). Equals `plugin` for plugin-
+   * shipped entries; for local entries it's the chosen server slug. */
+  name: string;
   path: string;
   servers: Record<string, unknown>;
 }
+
+/** Sentinel matching `LOCAL_PLUGIN` in `src-tauri/src/library.rs`. */
+export const LOCAL_PLUGIN = "__local__";
 
 export interface InstalledHook {
   plugin: string;

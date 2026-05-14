@@ -10,15 +10,21 @@ import {
   FolderOpen,
   Package,
   Search,
+  Pencil,
+  Plug,
+  Plus,
   Server,
   Sparkles,
   Terminal,
   Trash2,
   X,
 } from "lucide-vue-next";
+import { toast } from "vue-sonner";
+import { api } from "@/lib/api";
 import { useAppStore } from "@/stores/app";
-import type { Asset } from "@/lib/types";
+import type { Asset, McpEntry } from "@/lib/types";
 import { assetKey } from "@/lib/types";
+import NewMcpDialog from "@/components/NewMcpDialog.vue";
 import { groupAssets } from "@/lib/grouping";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,10 +86,65 @@ const pluginMcp = computed(() =>
   isLocal.value ? null : mcp.value.find((m) => m.plugin === props.plugin) ?? null
 );
 
+/** All MCP entries living under the Local bucket — used only on the
+ *  `__local__` detail page where each entry is one server per file
+ *  (the in-app create flow). Returns empty otherwise. */
+const localMcps = computed<McpEntry[]>(() =>
+  isLocal.value ? mcp.value.filter((m) => m.plugin === LOCAL_KEY) : [],
+);
+
 const mcpServersJson = computed(() => {
   if (!pluginMcp.value) return "";
   return JSON.stringify(pluginMcp.value.servers, null, 2);
 });
+
+// ── Local MCP CRUD wired through NewMcpDialog + the delete confirm ──
+const newMcpOpen = ref(false);
+const editMcpName = ref<string | undefined>(undefined);
+const deleteMcpName = ref<string | null>(null);
+
+function openCreateMcp() {
+  editMcpName.value = undefined;
+  newMcpOpen.value = true;
+}
+function openEditMcp(name: string) {
+  editMcpName.value = name;
+  newMcpOpen.value = true;
+}
+async function onMcpSaved() {
+  await store.refreshHooksMcp();
+}
+async function confirmDeleteMcp() {
+  if (!deleteMcpName.value) return;
+  try {
+    await api.deleteLocalMcp(deleteMcpName.value);
+    toast.success(`Deleted MCP "${deleteMcpName.value}"`);
+    await store.refreshHooksMcp();
+  } catch (e) {
+    toast.error("Delete failed", { description: String(e) });
+  } finally {
+    deleteMcpName.value = null;
+  }
+}
+
+/** Short command preview for the local-MCP card. */
+function mcpCardPreview(entry: McpEntry): string {
+  const inner =
+    (entry.servers as Record<string, unknown> | undefined)?.mcpServers ??
+    entry.servers;
+  if (inner && typeof inner === "object") {
+    const obj = inner as Record<string, Record<string, unknown>>;
+    const first = obj[entry.name] ?? Object.values(obj)[0];
+    if (first && typeof first === "object") {
+      const cmd = first.command;
+      const args = Array.isArray(first.args)
+        ? ` ${(first.args as unknown[]).join(" ")}`
+        : "";
+      if (typeof cmd === "string") return `${cmd}${args}`;
+    }
+  }
+  return "(no command)";
+}
 
 const query = ref("");
 
@@ -354,6 +415,86 @@ function back() {
             </div>
           </template>
 
+          <!-- Local MCP section — only on the __local__ bucket. Lists
+               each in-app-created server with edit/delete actions. -->
+          <template v-if="isLocal">
+            <Separator class="my-1" />
+            <div class="p-3">
+              <div class="flex items-center justify-between px-2.5 pt-1 pb-2">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Local MCP Servers
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-6 px-2 text-xs"
+                  @click="openCreateMcp"
+                >
+                  <Plus class="size-3" />
+                  New MCP
+                </Button>
+              </div>
+              <div
+                v-if="localMcps.length === 0"
+                class="rounded-md border border-dashed px-3 py-6 text-center text-xs text-muted-foreground"
+              >
+                No local MCP servers yet — click <strong>New MCP</strong> to
+                define one, or add one straight from a bundle's
+                <strong>Add MCP</strong> picker.
+              </div>
+              <div v-else class="space-y-2">
+                <div
+                  v-for="entry in localMcps"
+                  :key="entry.name"
+                  class="flex items-center gap-3 rounded-md border bg-card/40 px-3 py-2"
+                >
+                  <Plug class="size-3.5 shrink-0 text-muted-foreground" />
+                  <div class="min-w-0 flex-1">
+                    <div class="font-mono text-[12.5px] font-medium">
+                      {{ entry.name }}
+                    </div>
+                    <div class="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                      {{ mcpCardPreview(entry) }}
+                    </div>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="h-7 px-2 text-xs"
+                        :disabled="!canInstall"
+                        @click="store.applyMcpLocal(entry.name)"
+                      >
+                        <Server class="size-3" />
+                        Merge
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {{ canInstall ? "Merge into .claude/mcp.json" : "Pick a project first" }}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    class="h-7 px-2 text-xs"
+                    @click="openEditMcp(entry.name)"
+                  >
+                    <Pencil class="size-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    class="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                    @click="deleteMcpName = entry.name"
+                  >
+                    <Trash2 class="size-3" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </template>
+
           <!-- MCP section -->
           <template v-if="pluginMcp">
             <Separator class="my-1" />
@@ -409,6 +550,38 @@ function back() {
             class="bg-destructive text-white hover:bg-destructive/90"
             @click="confirmDelete"
           >Remove plugin</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <!-- Local MCP: create / edit -->
+    <NewMcpDialog
+      v-model:open="newMcpOpen"
+      :edit-name="editMcpName"
+      @saved="onMcpSaved"
+    />
+
+    <!-- Local MCP: delete confirmation -->
+    <AlertDialog
+      :open="!!deleteMcpName"
+      @update:open="(v) => !v && (deleteMcpName = null)"
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete MCP "{{ deleteMcpName }}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Removes the file under
+            <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">library/mcp/__local__/</code>.
+            Bundles that reference it will fail to apply this MCP until you
+            re-create or remove the reference.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive/90"
+            @click="confirmDeleteMcp"
+          >Delete</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

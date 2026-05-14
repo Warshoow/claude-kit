@@ -1,4 +1,4 @@
-use crate::library::{library_dir, AssetKind};
+use crate::library::{library_dir, AssetKind, LOCAL_PLUGIN};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -269,22 +269,54 @@ pub fn list_installed_hooks(project: &Path) -> Vec<InstalledHook> {
 
 pub fn apply_mcp(project: &Path, plugin: &str) -> Result<()> {
     let mcp_src = library_dir().join("mcp").join(format!("{plugin}.json"));
+    apply_mcp_from_source(project, &mcp_src)
+}
+
+/// Apply a local MCP entry stored under `mcp/__local__/<name>.json`.
+/// Same merge semantics as `apply_mcp` — only the source path differs.
+pub fn apply_mcp_local(project: &Path, name: &str) -> Result<()> {
+    let mcp_src = library_dir()
+        .join("mcp")
+        .join(LOCAL_PLUGIN)
+        .join(format!("{name}.json"));
+    apply_mcp_from_source(project, &mcp_src)
+}
+
+/// Shared merge logic. Reads the source MCP file, peels off the
+/// `mcpServers` envelope if present (newer claude-code format), and
+/// merges each server key into the project's `.claude/mcp.json`
+/// without ever overwriting one that's already there.
+fn apply_mcp_from_source(project: &Path, mcp_src: &Path) -> Result<()> {
     if !mcp_src.exists() {
         return Err(anyhow!("MCP source missing: {}", mcp_src.display()));
     }
-
-    let src_content = fs::read_to_string(&mcp_src)?;
+    let src_content = fs::read_to_string(mcp_src)?;
     let src_json: serde_json::Value = serde_json::from_str(&src_content)?;
-    let src_servers = src_json
-        .as_object()
-        .ok_or_else(|| anyhow!("MCP file must be a JSON object"))?;
+
+    // Accept both shapes:
+    //   1. `{"mcpServers": {<name>: ...}}` — standard claude-code wrapper
+    //   2. `{<name>: ...}` — older / wrapper-less form some plugins ship
+    let src_servers = match src_json.get("mcpServers") {
+        Some(inner) => inner.as_object().ok_or_else(|| {
+            anyhow!("`mcpServers` must be an object in {}", mcp_src.display())
+        })?,
+        None => src_json.as_object().ok_or_else(|| {
+            anyhow!("MCP file must be a JSON object in {}", mcp_src.display())
+        })?,
+    };
 
     let project_mcp = project.join(".claude").join("mcp.json");
     fs::create_dir_all(project_mcp.parent().unwrap())?;
 
     let mut existing: serde_json::Map<String, serde_json::Value> = if project_mcp.exists() {
         let content = fs::read_to_string(&project_mcp)?;
-        serde_json::from_str(&content).unwrap_or_default()
+        // Unwrap the same envelope on the project side if present so
+        // we round-trip the user's existing structure.
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+        match parsed.get("mcpServers").and_then(|v| v.as_object()) {
+            Some(inner) => inner.clone(),
+            None => parsed.as_object().cloned().unwrap_or_default(),
+        }
     } else {
         serde_json::Map::new()
     };
@@ -294,7 +326,8 @@ pub fn apply_mcp(project: &Path, plugin: &str) -> Result<()> {
         existing.entry(key.clone()).or_insert_with(|| value.clone());
     }
 
-    let output = serde_json::to_string_pretty(&serde_json::Value::Object(existing))?;
+    let wrapped = serde_json::json!({ "mcpServers": existing });
+    let output = serde_json::to_string_pretty(&wrapped)?;
     fs::write(&project_mcp, output)?;
     Ok(())
 }

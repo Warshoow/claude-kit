@@ -1,5 +1,5 @@
 use crate::library::{bundles_dir, library_dir, mark_harmonized, read_harmonized, read_origins,
-                     set_origin, AssetKind, Origin};
+                     set_origin, AssetKind, Origin, LOCAL_PLUGIN};
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
@@ -202,22 +202,28 @@ fn asset_content_path(kind: AssetKind, name: &str) -> PathBuf {
 
 /// Path the share encoder reads from / the importer writes to for an
 /// entry. For skills/commands/agents we go through `asset_content_path`.
-/// For hooks/mcp the `plugin` field is required in step 1 — the flat
-/// layout will be wired in alongside the manual MCP / AI hook UI in
-/// later steps.
+///
+/// Hooks/mcp split based on whether `plugin` is set:
+///
+/// - `Some(p)` → plugin-folder layout (`hooks/<p>/<name>`, `mcp/<p>.json`)
+/// - `None`    → flat local layout (`hooks/__local__/<name>`, `mcp/__local__/<name>.json`)
+///
+/// The flat layout is what the in-app create flows (manual MCP, AI
+/// hook generator) target.
 fn entry_disk_path(entry_kind: BundleEntryKind, name: &str, plugin: Option<&str>) -> Result<PathBuf> {
     if let Some(asset_kind) = entry_kind.as_asset_kind() {
         return Ok(asset_content_path(asset_kind, name));
     }
-    let plugin = plugin.ok_or_else(|| {
-        anyhow!(
-            "{} entry '{name}' missing plugin field — flat layout not supported yet",
-            entry_kind.as_str()
-        )
-    })?;
+    let base = library_dir().join(entry_kind.as_str());
+    let scope = plugin.unwrap_or(LOCAL_PLUGIN);
     match entry_kind {
-        BundleEntryKind::Hooks => Ok(library_dir().join("hooks").join(plugin).join(name)),
-        BundleEntryKind::Mcp => Ok(library_dir().join("mcp").join(format!("{plugin}.json"))),
+        BundleEntryKind::Hooks => Ok(base.join(scope).join(name)),
+        BundleEntryKind::Mcp => match plugin {
+            // Plugin MCP: one file at the root level holds all servers.
+            Some(p) => Ok(base.join(format!("{p}.json"))),
+            // Local MCP: one file per server under `__local__/`.
+            None => Ok(base.join(LOCAL_PLUGIN).join(format!("{name}.json"))),
+        },
         _ => unreachable!("as_asset_kind handled the markdown kinds"),
     }
 }
@@ -662,24 +668,54 @@ mod tests {
     }
 
     #[test]
-    fn encode_errors_when_hook_ref_missing_plugin() {
+    fn encode_picks_up_local_hook_from_flat_layout() {
         with_temp_home(|| {
-            create_bundle("broken", None).unwrap();
+            // Drop a hook in the flat `__local__` bucket (what the
+            // future AI-hook flow will produce).
+            let local_dir = library_dir().join("hooks").join("__local__");
+            std::fs::create_dir_all(&local_dir).unwrap();
+            std::fs::write(local_dir.join("on-save.sh"), "#!/bin/sh\n").unwrap();
+
+            create_bundle("with-local-hook", None).unwrap();
             set_bundle_assets(
-                "broken",
+                "with-local-hook",
                 vec![BundleRef {
                     kind: BundleEntryKind::Hooks,
-                    name: "orphan.sh".to_string(),
+                    name: "on-save.sh".to_string(),
                     plugin: None,
                 }],
             )
             .unwrap();
 
-            let err = encode_bundle_share("broken").unwrap_err();
-            assert!(
-                err.to_string().contains("flat layout not supported yet"),
-                "got: {err}"
-            );
+            let code = encode_bundle_share("with-local-hook").unwrap();
+            assert!(code.starts_with("ck1:"));
+        });
+    }
+
+    #[test]
+    fn encode_picks_up_local_mcp_from_flat_layout() {
+        with_temp_home(|| {
+            let local_dir = library_dir().join("mcp").join("__local__");
+            std::fs::create_dir_all(&local_dir).unwrap();
+            std::fs::write(
+                local_dir.join("my-server.json"),
+                r#"{"mcpServers":{"my-server":{"command":"node"}}}"#,
+            )
+            .unwrap();
+
+            create_bundle("with-local-mcp", None).unwrap();
+            set_bundle_assets(
+                "with-local-mcp",
+                vec![BundleRef {
+                    kind: BundleEntryKind::Mcp,
+                    name: "my-server".to_string(),
+                    plugin: None,
+                }],
+            )
+            .unwrap();
+
+            let code = encode_bundle_share("with-local-mcp").unwrap();
+            assert!(code.starts_with("ck1:"));
         });
     }
 

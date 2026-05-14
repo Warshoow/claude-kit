@@ -219,3 +219,32 @@ export type StreamEvent =
   | { event: "token"; data: { delta: string } }
   | { event: "done"; data: { content: string } }
   | { event: "error"; data: { message: string } };
+
+// ── Bundle-chat (generate a bundle of assets via chat) ───────────
+//
+// Mirrors `bundle_chat::GeneratedAsset` and `BundleChatEvent` in
+// `src-tauri/src/bundle_chat.rs`.
+
+export interface GeneratedAsset {
+  kind: AssetKind;
+  name: string;
+  content: string;
+}
+
+export type BundleChatEvent =
+  | { event: "token"; data: { delta: string } }
+  | {
+      event: "done";
+      data: {
+        assets: GeneratedAsset[];
+        bundle_name: string | null;
+        bundle_description: string | null;
+      };
+    }
+  | { event: "error"; data: { message: string } };
+
+export interface MaterializeResult {
+  bundle_name: string;
+  asset_count: number;
+  created: BundleRef[];
+}

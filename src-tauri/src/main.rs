@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ai;
+mod bundle_chat;
 mod bundles;
 mod harmonize;
 mod library;
@@ -246,6 +247,26 @@ fn refine_asset_chat(
 }
 
 #[tauri::command]
+fn generate_bundle_chat(
+    on_event: tauri::ipc::Channel<bundle_chat::BundleChatEvent>,
+    history: Vec<ai::ChatMessage>,
+    user_message: String,
+) -> Result<(), String> {
+    bundle_chat::generate_bundle_chat(on_event, history, user_message)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn materialize_generated_bundle(
+    bundle_name: String,
+    bundle_description: Option<String>,
+    assets: Vec<bundle_chat::GeneratedAsset>,
+) -> Result<bundle_chat::MaterializeResult, String> {
+    bundle_chat::materialize_generated_bundle(bundle_name, bundle_description, assets)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn read_settings_cmd() -> settings::Settings {
     settings::read_settings()
 }
@@ -404,6 +425,8 @@ fn main() {
             ai_status_cmd,
             ai_generate,
             refine_asset_chat,
+            generate_bundle_chat,
+            materialize_generated_bundle,
             read_settings_cmd,
             write_settings_cmd,
             harmonize_bundle_cmd,

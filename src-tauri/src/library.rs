@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum AssetKind {
     Skills,
@@ -344,7 +344,7 @@ pub fn scan_all() -> Vec<Asset> {
     all
 }
 
-fn asset_file_path(kind: AssetKind, name: &str) -> PathBuf {
+pub(crate) fn asset_file_path(kind: AssetKind, name: &str) -> PathBuf {
     let base = library_dir().join(kind.as_str());
     match kind {
         AssetKind::Skills => base.join(name).join("SKILL.md"),
@@ -368,7 +368,7 @@ pub fn write_asset_content(kind: AssetKind, name: &str, content: &str) -> Result
 
 /// Validate a slug used as an asset name. We refuse anything that would either
 /// confuse the filesystem (slashes / dots) or look weird in URLs.
-fn validate_asset_name(name: &str) -> Result<()> {
+pub(crate) fn validate_asset_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(anyhow!("name cannot be empty"));
     }

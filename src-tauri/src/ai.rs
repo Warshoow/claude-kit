@@ -278,7 +278,11 @@ pub fn refine_asset_chat(
 
 /// Dispatch a streaming text generation. Calls `emit` once per delta
 /// chunk and returns the full accumulated string at the end.
-fn stream_text(system: &str, user: &str, mut emit: impl FnMut(&str)) -> Result<String> {
+pub(crate) fn stream_text(
+    system: &str,
+    user: &str,
+    mut emit: impl FnMut(&str),
+) -> Result<String> {
     let status = ai_status();
     match status.mode.as_str() {
         "claude-cli" => stream_via_cli(system, user, &mut emit),
@@ -508,7 +512,7 @@ fn build_user_prompt(prompt: &str, context: Option<&str>) -> String {
 
 /// Some models still wrap their output in a markdown code fence even when
 /// asked not to. Strip a single leading/trailing fence if present.
-fn strip_code_fences(s: &str) -> String {
+pub(crate) fn strip_code_fences(s: &str) -> String {
     let trimmed = s.trim();
     if let Some(rest) = trimmed.strip_prefix("```") {
         let body = rest.split_once('\n').map(|(_, b)| b).unwrap_or(rest);

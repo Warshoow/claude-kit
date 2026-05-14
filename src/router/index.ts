@@ -30,6 +30,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import("@/views/BundleRecommendView.vue"),
   },
   {
+    // Top-level for the same reason: prevents `/bundles/:name` from
+    // catching `/bundles/generate`.
+    path: "/generate-bundle",
+    name: "bundle-generate",
+    component: () => import("@/views/BundleGenerateView.vue"),
+  },
+  {
     path: "/browse",
     name: "browse",
     component: () => import("@/views/BrowseView.vue"),

@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Download, Plus, Package, Boxes, ChevronRight } from "lucide-vue-next";
+import { Download, Plus, Package, Boxes, ChevronRight, Sparkles } from "lucide-vue-next";
 import { useAppStore } from "@/stores/app";
 import { useBundleStore } from "@/stores/bundle";
 import { assetKey } from "@/lib/types";
@@ -121,6 +121,14 @@ async function submitImport() {
         <Download />
         Import
       </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        @click="router.push({ name: 'bundle-generate' })"
+      >
+        <Sparkles />
+        Generate (AI)
+      </Button>
       <Button size="sm" @click="openCreate">
         <Plus />
         Create bundle
@@ -141,10 +149,19 @@ async function submitImport() {
           Bundles let you group skills, commands and agents that go together,
           and apply them to a project in one click.
         </p>
-        <Button class="mt-5" @click="openCreate">
-          <Plus />
-          Create your first bundle
-        </Button>
+        <div class="mt-5 flex items-center gap-2">
+          <Button @click="openCreate">
+            <Plus />
+            Create your first bundle
+          </Button>
+          <Button
+            variant="outline"
+            @click="router.push({ name: 'bundle-generate' })"
+          >
+            <Sparkles />
+            Generate with AI
+          </Button>
+        </div>
       </div>
 
       <div

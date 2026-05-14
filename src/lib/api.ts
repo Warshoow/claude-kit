@@ -7,8 +7,10 @@ import type {
   AssetKind,
   AssetWrite,
   Bundle,
+  BundleChatEvent,
   BundleRef,
   ChatMessage,
+  GeneratedAsset,
   HarmonizationResult,
   HookEntry,
   ImportResult,
@@ -17,6 +19,7 @@ import type {
   InstalledHook,
   Marketplace,
   MarketplaceSource,
+  MaterializeResult,
   McpEntry,
   Plugin,
   RecommendationResult,
@@ -95,6 +98,29 @@ export const api = {
       userMessage,
     });
   },
+  generateBundleChat: (
+    history: ChatMessage[],
+    userMessage: string,
+    onEvent: (e: BundleChatEvent) => void,
+  ) => {
+    const channel = new Channel<BundleChatEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("generate_bundle_chat", {
+      onEvent: channel,
+      history,
+      userMessage,
+    });
+  },
+  materializeGeneratedBundle: (
+    bundleName: string,
+    bundleDescription: string | undefined,
+    assets: GeneratedAsset[],
+  ) =>
+    invoke<MaterializeResult>("materialize_generated_bundle", {
+      bundleName,
+      bundleDescription,
+      assets,
+    }),
   readSettings: () => invoke<Settings>("read_settings_cmd"),
   writeSettings: (settings: Settings) =>
     invoke<void>("write_settings_cmd", { settings }),

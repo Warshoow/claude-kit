@@ -1,0 +1,71 @@
+name: Test build (Windows)
+
+# Fast Windows-only test build — for iterating on the .msi / .exe before
+# cutting a real multi-OS release. Manually triggered, no tag involved,
+# no GitHub release created. The installers are uploaded as workflow
+# artifacts you grab from the run page.
+#
+# For an actual release that ships to users (and feeds the in-app
+# updater), push a `v*` tag instead — that hits release.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Sign with the Tauri updater key (matches prod). Off by default to skip the secret lookup.'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build (Tauri)
+        env:
+          # Signing is conditional on the workflow input: when 'true', the
+          # secrets are forwarded; when 'false' (default), they stay unset
+          # and `tauri build` skips signature generation. Unsigned test
+          # builds still install and run — they just can't test the
+          # in-app updater path. For that you need a real release.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: npm run tauri build
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          # Run number disambiguates artifacts across re-runs of the same
+          # workflow without overwriting the previous attempt.
+          name: claude-kit-windows-${{ github.run_number }}
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14

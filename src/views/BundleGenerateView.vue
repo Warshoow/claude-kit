@@ -316,7 +316,7 @@ const canUndo = computed(() => undoStack.value.length > 0 && !streaming.value);
     <!-- Body: split layout -->
     <div class="flex flex-1 min-h-0 overflow-hidden">
       <!-- Left: generated assets + bundle metadata -->
-      <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div class="border-b bg-background/40 px-6 py-3">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div class="space-y-1">

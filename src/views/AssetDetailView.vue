@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   Eye,
   Loader2,
+  MessageSquare,
   Pencil,
   Save,
   Sparkles,
@@ -41,6 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import AssetRefineChat from "@/components/AssetRefineChat.vue";
 
 const props = defineProps<{ kind: string; name: string }>();
 
@@ -70,6 +72,22 @@ const libraryAsset = computed(() =>
 
 type ViewMode = "preview" | "edit";
 const viewMode = ref<ViewMode>("preview");
+
+// Side chat panel for the AI refine flow — opens to the right of the
+// editor/preview body. Hidden by default.
+const refineOpen = ref(false);
+
+function toggleRefine() {
+  refineOpen.value = !refineOpen.value;
+  aiStore.refreshStatus();
+}
+
+// Called when the chat applies (or undoes) a turn. Both ends touch the
+// shared `content` ref — the existing CodeMirror watcher syncs the
+// editor and the preview re-renders from `content`.
+function applyRefinedContent(next: string) {
+  content.value = next;
+}
 
 const content = ref("");
 const original = ref("");
@@ -347,6 +365,15 @@ function goToSettingsFromDialog() {
             <Sparkles />
             Generate with AI
           </Button>
+          <Button
+            size="sm"
+            :variant="refineOpen ? 'default' : 'outline'"
+            @click="toggleRefine"
+            title="Refine this asset via chat"
+          >
+            <MessageSquare />
+            Refine chat
+          </Button>
           <ToggleGroup
             type="single"
             :model-value="viewMode"
@@ -367,64 +394,78 @@ function goToSettingsFromDialog() {
       </div>
     </div>
 
-    <!-- Body -->
-    <div class="relative flex-1 min-h-0 overflow-hidden">
-      <div
-        v-if="loading"
-        class="flex h-full items-center justify-center text-sm text-muted-foreground"
-      >
-        <Loader2 class="mr-2 size-4 animate-spin" />
-        Loading…
-      </div>
+    <!-- Body + side chat panel -->
+    <div class="flex flex-1 min-h-0 overflow-hidden">
+      <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <!-- Body -->
+        <div class="relative flex-1 min-h-0 overflow-hidden">
+          <div
+            v-if="loading"
+            class="flex h-full items-center justify-center text-sm text-muted-foreground"
+          >
+            <Loader2 class="mr-2 size-4 animate-spin" />
+            Loading…
+          </div>
 
-      <div
-        v-else-if="loadError"
-        class="m-6 rounded-lg border border-destructive/30 bg-destructive/10 p-4"
-      >
-        <div class="text-sm font-medium text-destructive">
-          Couldn't load this asset
+          <div
+            v-else-if="loadError"
+            class="m-6 rounded-lg border border-destructive/30 bg-destructive/10 p-4"
+          >
+            <div class="text-sm font-medium text-destructive">
+              Couldn't load this asset
+            </div>
+            <code class="mt-2 block break-words text-xs text-muted-foreground">{{ loadError }}</code>
+            <Button class="mt-3" size="sm" variant="outline" @click="router.back()">
+              Back
+            </Button>
+          </div>
+
+          <ScrollArea v-else-if="viewMode === 'preview'" class="h-full">
+            <div class="markdown px-6 py-5" v-html="renderedMarkdown" @click="handleExternalLink" />
+          </ScrollArea>
+
+          <div
+            v-else
+            ref="editorContainer"
+            class="cm-host h-full overflow-hidden"
+          />
         </div>
-        <code class="mt-2 block break-words text-xs text-muted-foreground">{{ loadError }}</code>
-        <Button class="mt-3" size="sm" variant="outline" @click="router.back()">
-          Back
-        </Button>
+
+        <!-- Footer (edit mode only) -->
+        <div
+          v-if="viewMode === 'edit' && !loading && !loadError"
+          class="flex items-center gap-3 border-t bg-card/40 px-6 py-2.5"
+        >
+          <span class="text-xs text-muted-foreground">
+            <span v-if="dirty" class="text-primary">● Unsaved changes</span>
+            <span v-else>Saved</span>
+            · Ctrl+S to save
+          </span>
+          <span
+            v-if="saveError"
+            class="text-xs text-destructive"
+          >{{ saveError }}</span>
+          <div class="flex-1" />
+          <Button
+            size="sm"
+            :disabled="!dirty || saving"
+            @click="save"
+          >
+            <Loader2 v-if="saving" class="animate-spin" />
+            <Save v-else />
+            {{ saving ? "Saving…" : "Save" }}
+          </Button>
+        </div>
       </div>
 
-      <ScrollArea v-else-if="viewMode === 'preview'" class="h-full">
-        <div class="markdown px-6 py-5" v-html="renderedMarkdown" @click="handleExternalLink" />
-      </ScrollArea>
-
-      <div
-        v-else
-        ref="editorContainer"
-        class="cm-host h-full overflow-hidden"
+      <AssetRefineChat
+        v-if="kindSafe"
+        :open="refineOpen"
+        :kind="kindSafe"
+        :current-content="content"
+        @update:open="refineOpen = $event"
+        @update:current-content="applyRefinedContent"
       />
-    </div>
-
-    <!-- Footer (edit mode only) -->
-    <div
-      v-if="viewMode === 'edit' && !loading && !loadError"
-      class="flex items-center gap-3 border-t bg-card/40 px-6 py-2.5"
-    >
-      <span class="text-xs text-muted-foreground">
-        <span v-if="dirty" class="text-primary">● Unsaved changes</span>
-        <span v-else>Saved</span>
-        · Ctrl+S to save
-      </span>
-      <span
-        v-if="saveError"
-        class="text-xs text-destructive"
-      >{{ saveError }}</span>
-      <div class="flex-1" />
-      <Button
-        size="sm"
-        :disabled="!dirty || saving"
-        @click="save"
-      >
-        <Loader2 v-if="saving" class="animate-spin" />
-        <Save v-else />
-        {{ saving ? "Saving…" : "Save" }}
-      </Button>
     </div>
 
     <!-- AI generation dialog -->

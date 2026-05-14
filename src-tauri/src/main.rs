@@ -234,6 +234,18 @@ fn ai_generate(
 }
 
 #[tauri::command]
+fn refine_asset_chat(
+    on_event: tauri::ipc::Channel<ai::StreamEvent>,
+    kind: AssetKind,
+    current_content: String,
+    history: Vec<ai::ChatMessage>,
+    user_message: String,
+) -> Result<(), String> {
+    ai::refine_asset_chat(on_event, kind, current_content, history, user_message)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn read_settings_cmd() -> settings::Settings {
     settings::read_settings()
 }
@@ -391,6 +403,7 @@ fn main() {
             remove_plugin_cmd,
             ai_status_cmd,
             ai_generate,
+            refine_asset_chat,
             read_settings_cmd,
             write_settings_cmd,
             harmonize_bundle_cmd,

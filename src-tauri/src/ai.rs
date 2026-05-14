@@ -1,8 +1,8 @@
 use crate::library::AssetKind;
 use crate::settings::{read_settings, AiMode};
 use anyhow::{anyhow, Result};
-use serde::Serialize;
-use std::io::Write;
+use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -163,6 +163,293 @@ pub fn ai_status() -> AiStatus {
         api_configured,
         message,
     }
+}
+
+// ── Streaming primitives ──────────────────────────────────────────
+//
+// Used by the refine-chat flow. Token events are forwarded to the
+// frontend live (via a Tauri Channel) so the user sees the response
+// materialize while it's being generated. The final `done` event
+// carries the cleaned full content; auto-apply happens client-side.
+
+/// One message in the refine-chat history. `role` is "user" or
+/// "assistant"; assistant turns hold the *full asset content* the
+/// model produced last time (we don't currently store an explainer).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+/// Sent over the Tauri Channel to the frontend. Tagged enum so the TS
+/// side gets a clean discriminated union.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "lowercase")]
+pub enum StreamEvent {
+    Token { delta: String },
+    Done { content: String },
+    Error { message: String },
+}
+
+fn build_refine_system_prompt(kind: AssetKind) -> String {
+    let kind_label = match kind {
+        AssetKind::Skills => "Claude Code skill (SKILL.md)",
+        AssetKind::Commands => "Claude Code slash-command",
+        AssetKind::Agents => "Claude Code sub-agent definition",
+    };
+    format!(
+        "You are refining a {kind_label} via conversation with the user. \
+         Each user message asks for changes to the asset. You MUST output \
+         ONLY the new full file contents — frontmatter (YAML between `---` \
+         lines) plus markdown body. No commentary, no explanation, no \
+         surrounding code fences. The file must keep a valid `description:` \
+         field in its frontmatter. Preserve any content the user didn't \
+         ask to change."
+    )
+}
+
+fn build_refine_user_prompt(
+    current_content: &str,
+    history: &[ChatMessage],
+    user_message: &str,
+) -> String {
+    let mut out = String::new();
+    out.push_str("Current asset content:\n```\n");
+    out.push_str(current_content.trim());
+    out.push_str("\n```\n\n");
+
+    if !history.is_empty() {
+        out.push_str("Conversation so far (each assistant turn was a \
+                      previous version of the asset):\n\n");
+        for msg in history {
+            let role = if msg.role == "assistant" { "ASSISTANT" } else { "USER" };
+            out.push_str(role);
+            out.push_str(":\n");
+            out.push_str(msg.content.trim());
+            out.push_str("\n\n");
+        }
+    }
+
+    out.push_str("USER (latest request):\n");
+    out.push_str(user_message.trim());
+    out.push_str("\n\nOutput the new full asset content now.");
+    out
+}
+
+/// Drive a streaming refine turn. Spawns a worker thread so the
+/// caller (a Tauri command) returns immediately; the channel carries
+/// `token` events as the model generates, then `done` (or `error`).
+pub fn refine_asset_chat(
+    on_event: tauri::ipc::Channel<StreamEvent>,
+    kind: AssetKind,
+    current_content: String,
+    history: Vec<ChatMessage>,
+    user_message: String,
+) -> Result<()> {
+    if user_message.trim().is_empty() {
+        return Err(anyhow!("message is empty"));
+    }
+    let system = build_refine_system_prompt(kind);
+    let user = build_refine_user_prompt(&current_content, &history, &user_message);
+
+    let chan_token = on_event.clone();
+    std::thread::spawn(move || {
+        let result = stream_text(&system, &user, |delta| {
+            let _ = chan_token.send(StreamEvent::Token {
+                delta: delta.to_string(),
+            });
+        });
+
+        match result {
+            Ok(full) => {
+                let cleaned = strip_code_fences(&full);
+                let _ = on_event.send(StreamEvent::Done { content: cleaned });
+            }
+            Err(e) => {
+                let _ = on_event.send(StreamEvent::Error {
+                    message: e.to_string(),
+                });
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Dispatch a streaming text generation. Calls `emit` once per delta
+/// chunk and returns the full accumulated string at the end.
+fn stream_text(system: &str, user: &str, mut emit: impl FnMut(&str)) -> Result<String> {
+    let status = ai_status();
+    match status.mode.as_str() {
+        "claude-cli" => stream_via_cli(system, user, &mut emit),
+        "api" => stream_via_api(system, user, &mut emit),
+        _ => Err(anyhow!(
+            "No AI backend available. Configure one in Settings."
+        )),
+    }
+}
+
+fn stream_via_cli(
+    system: &str,
+    user: &str,
+    emit: &mut dyn FnMut(&str),
+) -> Result<String> {
+    let cli = detect_claude_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
+
+    // `--output-format text` streams the response straight to stdout —
+    // no JSON envelope to parse, no buffering until the end. Stdin still
+    // carries the user prompt (Windows command-line length limits make
+    // the arg form risky for prompts that pack the bundle/history).
+    let mut cmd = build_cli_command(&cli);
+    cmd.arg("-p")
+        .arg("--append-system-prompt")
+        .arg(system)
+        .arg("--output-format")
+        .arg("text")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow!("spawn claude CLI: {e}"))?;
+
+    let user_owned = user.to_string();
+    if let Some(mut stdin) = child.stdin.take() {
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(user_owned.as_bytes());
+        });
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("CLI stdout not available"))?;
+    let mut reader = BufReader::new(stdout);
+    let mut accumulated = String::new();
+    let mut buf = [0u8; 256];
+
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
+                accumulated.push_str(&chunk);
+                emit(&chunk);
+            }
+            Err(e) => return Err(anyhow!("read CLI stdout: {e}")),
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| anyhow!("wait on claude CLI: {e}"))?;
+    if !status.success() {
+        let mut stderr = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            e.read_to_string(&mut stderr).ok();
+        }
+        return Err(anyhow!(
+            "claude CLI failed (exit {status}): {}",
+            stderr.trim()
+        ));
+    }
+
+    Ok(accumulated)
+}
+
+fn stream_via_api(
+    system: &str,
+    user: &str,
+    emit: &mut dyn FnMut(&str),
+) -> Result<String> {
+    let s = read_settings().ai;
+    let base = s
+        .api_base_url
+        .as_ref()
+        .filter(|x| !x.is_empty())
+        .ok_or_else(|| anyhow!("API base URL not configured"))?
+        .trim_end_matches('/')
+        .to_string();
+    let key = s
+        .api_key
+        .as_ref()
+        .filter(|x| !x.is_empty())
+        .ok_or_else(|| anyhow!("API key not configured"))?
+        .clone();
+    let model = s
+        .api_model
+        .as_deref()
+        .filter(|x| !x.is_empty())
+        .unwrap_or("claude-sonnet-4-5")
+        .to_string();
+
+    // Streaming requests can take a while; bump the read timeout well
+    // above the blocking call's 120s. The connect timeout stays short.
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .user_agent("claude-kit/0.1")
+        .build()?;
+
+    let url = format!("{base}/chat/completions");
+    let body = serde_json::json!({
+        "model": model,
+        "stream": true,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user",   "content": user   },
+        ],
+    });
+
+    let resp = client
+        .post(&url)
+        .bearer_auth(&key)
+        .json(&body)
+        .send()?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().unwrap_or_default();
+        return Err(anyhow!("API call failed ({status}): {text}"));
+    }
+
+    // SSE framing: each event is `data: <payload>\n\n`. The OpenAI-style
+    // protocol terminates with `data: [DONE]`. We read line-by-line and
+    // ignore everything that isn't a `data:` line (keep-alives, comments).
+    let mut reader = BufReader::new(resp);
+    let mut accumulated = String::new();
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        let n = reader
+            .read_line(&mut line)
+            .map_err(|e| anyhow!("read SSE stream: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        let payload = match trimmed.strip_prefix("data: ") {
+            Some(p) => p,
+            None => continue,
+        };
+        if payload == "[DONE]" {
+            break;
+        }
+        let v: serde_json::Value = match serde_json::from_str(payload) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Standard OpenAI/Anthropic-compat shape: choices[0].delta.content
+        if let Some(delta) = v["choices"][0]["delta"]["content"].as_str() {
+            if !delta.is_empty() {
+                accumulated.push_str(delta);
+                emit(delta);
+            }
+        }
+    }
+
+    Ok(accumulated)
 }
 
 pub fn generate_asset(

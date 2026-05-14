@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AiStatus,
   ApplyResult,
@@ -8,6 +8,7 @@ import type {
   AssetWrite,
   Bundle,
   BundleRef,
+  ChatMessage,
   HarmonizationResult,
   HookEntry,
   ImportResult,
@@ -20,6 +21,7 @@ import type {
   Plugin,
   RecommendationResult,
   Settings,
+  StreamEvent,
   UpdatePreview,
 } from "./types";
 
@@ -76,6 +78,23 @@ export const api = {
   aiStatus: () => invoke<AiStatus>("ai_status_cmd"),
   aiGenerate: (kind: AssetKind, prompt: string, context?: string) =>
     invoke<string>("ai_generate", { kind, prompt, context }),
+  refineAssetChat: (
+    kind: AssetKind,
+    currentContent: string,
+    history: ChatMessage[],
+    userMessage: string,
+    onEvent: (e: StreamEvent) => void,
+  ) => {
+    const channel = new Channel<StreamEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("refine_asset_chat", {
+      onEvent: channel,
+      kind,
+      currentContent,
+      history,
+      userMessage,
+    });
+  },
   readSettings: () => invoke<Settings>("read_settings_cmd"),
   writeSettings: (settings: Settings) =>
     invoke<void>("write_settings_cmd", { settings }),

@@ -205,3 +205,17 @@ export interface ImportShareResult {
   imported: string[];
   skipped: string[];
 }
+
+// ── Refine-chat streaming ────────────────────────────────────────
+// Backend tags the enum as `{ event, data }` (#[serde tag/content]).
+// Mirrors `ai::StreamEvent` in `src-tauri/src/ai.rs`.
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export type StreamEvent =
+  | { event: "token"; data: { delta: string } }
+  | { event: "done"; data: { content: string } }
+  | { event: "error"; data: { message: string } };

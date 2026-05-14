@@ -46,14 +46,16 @@ Import from the official [claude-plugins-official](https://github.com/anthropics
 ```
 ~/.claude-assets/
 ├── library/
-│   ├── skills/          # each is a directory with SKILL.md
-│   ├── commands/        # flat .md files
-│   ├── agents/          # flat .md files
-│   ├── hooks/           # <plugin>/<script> — hook files
-│   ├── mcp/             # <plugin>.json — MCP server configs
-│   └── .origins.json    # provenance (plugin, version, imported_at)
-└── bundles/
-    └── python-backend.json
+│   ├── skills/           # each is a directory with SKILL.md
+│   ├── commands/         # flat .md files
+│   ├── agents/           # flat .md files
+│   ├── hooks/            # <plugin>/<script> — hook files
+│   ├── mcp/              # <plugin>.json — MCP server configs
+│   ├── .origins.json     # provenance (plugin, version, imported_at)
+│   └── .harmonized.json  # timestamps of last AI-rewrite per asset
+├── bundles/
+│   └── python-backend.json
+└── settings.json         # AI backend + registered marketplaces
 ```
 
 Symlinks are **relative** — they survive if you move the project or the library.
@@ -73,6 +75,10 @@ Symlinks are **relative** — they survive if you move the project or the librar
 - Create named bundles and pick assets from your library
 - Apply *additively* (add on top) or with *replace* (clean then apply)
 - Each bundle tracks which assets it owns in the project view
+- **Share a bundle by code** — export any bundle as a compact `ck1:…`
+  string (gzipped + base64-encoded manifest containing every asset's
+  full content), paste it on another machine to recreate the bundle
+  one-shot. No server involved — pure offline transfer.
 
 **Project view**
 - Dashboard showing active bundles, standalone assets, and installed hooks
@@ -95,7 +101,7 @@ Symlinks are **relative** — they survive if you move the project or the librar
 Two backends, auto-detected: the local Claude Code CLI (zero-config — uses your existing subscription) or any OpenAI-compatible API endpoint (Anthropic, OpenAI, Ollama, LM Studio, vLLM…).
 
 - **Generate an asset** — describe what you want, the model produces a Claude-Code-shaped file. Available both when creating a new asset and when editing an existing one (with a *Refine* mode that sends current content as context).
-- **Harmonize a bundle** — rewrite every asset of a bundle so it reads like one author wrote it. Per-hunk diff review with accept/reject before any write.
+- **Harmonize a bundle** — rewrite every asset of a bundle to bridge workflow gaps and unify terminology, so the bundle works as a cohesive whole rather than a stack of independent files. Per-hunk diff review with word-level highlighting before any write. Assets the harmonizer touched get a `✨ Harmonized` badge in the library.
 
 **MCP support**
 - Import `.mcp.json` from any plugin
@@ -105,9 +111,17 @@ Two backends, auto-detected: the local Claude Code CLI (zero-config — uses you
 - CodeMirror 6 with Markdown syntax highlighting
 - Edit / Preview toggle, `Ctrl+S` to save
 
+**Distribution**
+- **In-app auto-update** — new releases surface as a topbar button.
+  Click to download, verify the signature, install, and relaunch. No
+  manual download from GitHub once a v0.3+ build is installed.
+- Cross-platform installers: `.msi` / `.exe` (Windows), `.dmg`
+  (macOS Intel + Apple Silicon), `.deb` / `.rpm` / `.AppImage` (Linux)
+
 **UI**
 - Dark / light theme (persisted, no flash on load)
-- Custom slim window chrome, native traffic lights on macOS
+- Custom slim window chrome, native traffic lights on macOS,
+  semi-transparent body on macOS for vibrancy
 - Runs on Linux (including WSLg), macOS, and Windows
 
 ## Prerequisites
@@ -149,13 +163,14 @@ See [`docs/build.md`](docs/build.md) for the full procedure including icon gener
 
 ## Roadmap
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. The big features are now in: AI flows (generator, harmonizer), force-overwrite plugin updates, multiple marketplaces, and a VitePress landing site at `website/`.
+See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. Big features that have shipped: AI generator + harmonizer, force-overwrite plugin updates with hunk-level review, multiple marketplaces, share-bundle-by-code, in-app auto-update, VitePress landing site at `website/`.
 
 What's still to do:
 
 - **CLI tool `ck`** — `ck apply <bundle>` from a project terminal (plan in [`docs/cli-roadmap.md`](docs/cli-roadmap.md))
 - **Streaming** for the AI generator (today the dialog blocks until the full response arrives)
-- **macOS window transparency** — last cosmetic tweak before the first public tag
+- **Content-aware bundle recommender** — the feature exists but is hidden in the UI; needs a pre-cache or agentic flow to stop hallucinating asset names before being re-enabled
+- **Code signing** (Windows Authenticode + macOS notarization) to remove the SmartScreen / Gatekeeper warnings on first install
 
 ## Tech stack
 

@@ -13,10 +13,19 @@ keeps a central library at `~/.claude-assets/` and "applies" bundles to
 a project, which materializes as **relative symlinks** inside that
 project's `.claude/` directory.
 
-Three optional AI flows sit on top of the library: an asset generator,
-a bundle harmonizer (rewrites every asset for consistency, per-hunk
-review), and a bundle recommender (picks plugins + assets to fit a
-free-form need).
+Two AI flows are exposed in the UI: an **asset generator** and a
+**bundle harmonizer** (rewrites every asset of a bundle to fill
+workflow gaps and unify terminology, per-hunk review before writing).
+A third — the **bundle recommender** — is fully implemented backend +
+frontend but its entry-point button is intentionally hidden right now;
+the route `/recommend` still works for direct testing. It's pending a
+content-aware rebuild (the model currently sees only plugin
+names/descriptions and hallucinates asset names — see [`docs/roadmap.md`](docs/roadmap.md)).
+
+Bundles can also be **shared between machines** via a single compact
+code (gzipped + base64-encoded manifest of the bundle's content +
+metadata). No server in the loop — the user copies a code, pastes it
+on another install, the bundle is recreated locally.
 
 Persistence layout:
 
@@ -31,8 +40,13 @@ Persistence layout:
   for assets that came from a marketplace import. Used to group the UI
   by plugin, surface "in library" / "update available" badges, drive
   the per-hunk update flow, and trace where an asset came from.
+- `~/.claude-assets/library/.harmonized.json` — sibling of `.origins.json`,
+  keyed the same way → ISO timestamp of the last time the harmonizer
+  touched the asset. Powers the `✨ Harmonized` badge in the library
+  and asset editor. Stored separately from `Origin` because it has to
+  work for locally-created assets too (which have no `Origin`).
 - `~/.claude-assets/bundles/<name>.json` — bundle definitions (just
-  lists of `{kind, name}` refs).
+  lists of `{kind, name}` refs, plus an optional `description`).
 - `~/.claude-assets/settings.json` — AI backend config + the user's
   list of registered marketplaces.
 - `<project>/.claude/{skills,commands,agents,hooks}/` — symlinks
@@ -54,8 +68,11 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
 - Backend: Rust in `src-tauri/src/` exposes `#[tauri::command]`
   functions. The frontend calls them through a thin wrapper at
   [`src/lib/api.ts`](src/lib/api.ts).
-- Static landing site lives in [`website/`](website/) (VitePress 1.6).
-  Independent `package.json`, deployed to GitHub Pages by
+- Static landing site lives in [`website/`](website/) (VitePress 1.6
+  with a **custom `Home.vue` that fully replaces the default home
+  layout** — the YAML-hero-and-features layout was too constrained for
+  the screenshots / smart download CTA combo we wanted). Independent
+  `package.json`, deployed to GitHub Pages by
   `.github/workflows/pages.yml` on every push to `master` that touches
   `website/**`.
 
@@ -81,16 +98,38 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   - `Origin` struct + `.origins.json` read/write (with auto-migration
     for older entries that had `.md` suffixes in keys, and `#[serde(default)]`
     on optional `version`/`git_ref` fields).
-  - `import_from_plugin` — copies plugin-style folders into the library:
-    walks `skills/`, `commands/`, `agents/`, `hooks/`, and the plugin's
-    `.mcp.json` if present. Existing entries are skipped.
+  - `import_from_plugin(source, canonical_name: Option<&str>)` — copies
+    plugin-style folders into the library: walks `skills/`, `commands/`,
+    `agents/`, `hooks/`, and the plugin's `.mcp.json` if present.
+    Existing entries are skipped. When `canonical_name` is passed (the
+    marketplace flow always does), hooks/ and mcp/ entries are keyed
+    by that name instead of the extracted tarball folder name — fixes
+    grouping when GitHub renames the tarball root (`repo-main/`) and
+    the marketplace's declared plugin name differ.
   - `create_asset` — refuses to overwrite, validates name as
     `[A-Za-z0-9_-]+` ≤ 64 chars, scaffolds frontmatter + heading.
+  - `mark_harmonized(kind, name, iso)` + `.harmonized.json` read/write
+    — stamped by the harmonize flow on every asset that actually got
+    rewritten. The library scan attaches `harmonized_at` to each
+    `Asset` so the UI can render the badge.
   - Hook + MCP listing helpers (`list_hooks`, `list_mcp`,
     `remove_plugin`).
 - **`bundles.rs`** — bundles are JSON files at
   `~/.claude-assets/bundles/<name>.json`, each holding a list of
-  `BundleRef { kind, name }`.
+  `BundleRef { kind, name }` plus an optional `description`. Also owns
+  the **share-by-code** flow:
+  - `encode_bundle_share(name)` — packs the bundle's manifest +
+    every asset's full content + each asset's `Origin` and
+    `harmonized_at` into a `ShareManifest { v: 1, name, description?,
+    assets: [...] }`, serialises to JSON, gzip-compresses, base64-
+    encodes (`STANDARD_NO_PAD`), and prefixes with `ck1:` to mark
+    the schema version.
+  - `import_bundle_share(code)` — reverses the above. Skips assets
+    whose files already exist locally (no overwrite), restores
+    origin + harmonized metadata for new ones, and deduplicates the
+    bundle name (`my-bundle` → `my-bundle (2)`) if a bundle of the
+    same name already exists. Returns `ImportShareResult { bundle_name,
+    imported: [...], skipped: [...] }`.
 - **`marketplace.rs`** — fetches a `marketplace.json` from any URL,
   downloads plugin tarballs from `codeload.github.com`, extracts to a
   tempdir via `download_and_extract` (a public helper that both the
@@ -141,7 +180,12 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   (`<<<HARMONIZE-BEGIN: kind/name>>>…<<<HARMONIZE-END>>>`), calls
   `ai::generate_text`, and parses the response back into asset
   before/after pairs. The parser tolerates truncated blocks and
-  preamble text. Unit-tested.
+  preamble text. Unit-tested. **System prompt focus is workflow
+  gap-filling** — bridging steps between assets that don't reference
+  each other, unifying terminology for the same concept — not just
+  cosmetic style consistency. The bundle's `description` (if any) is
+  passed as an optional hint to ground the rewrite in the user's
+  stated intent.
 - **`recommend.rs`** — `recommend_bundle(user_need)` builds a compact
   marketplace catalog string + a listing of the user's existing
   library, sends them to the model, expects strict JSON back.
@@ -157,7 +201,9 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   [`src/stores/index.ts`](src/stores/index.ts):
   - `app.ts` — library, bundles, installed assets, hooks, MCP, project
     path, the cross-cutting refresh actions
-  - `bundle.ts` — bundle CRUD
+  - `bundle.ts` — bundle CRUD plus the share flow (`encodeShare`,
+    `importShare`); the latter dedupes the imported bundle's name
+    locally and surfaces the resulting name back to the caller
   - `library.ts` — `createAsset` action
   - `plugin.ts` — `removePlugin`
   - `marketplace.ts` — sources + per-source catalogs (one fetch per
@@ -201,6 +247,13 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   shared component.
 - **Selected project path** is persisted in `localStorage` under
   `claude-kit:last-project`.
+- **Auto-update is surfaced via a topbar button**, not a startup toast.
+  The first `App.vue::onMounted` defers a `check()` from
+  `tauri-plugin-updater` by a few seconds; when a newer release is
+  found the button becomes clickable and shows the target version.
+  Clicking calls `downloadAndInstall()` then `relaunch()` (the
+  `tauri-plugin-process` dep). Fails open silently in dev / before
+  signing keys are set — `console.warn` only.
 - **Toolkit:** shadcn-vue components live in `src/components/ui/`
   (style `new-york`). Tailwind v4 with `@tailwindcss/vite`. Icons via
   `lucide-vue-next`. Toasts via `vue-sonner`. Markdown editor uses
@@ -244,9 +297,13 @@ cd website && npm run dev         # http://localhost:5173 with HMR
 cd website && npm run build       # → website/.vitepress/dist/
 ```
 
-There is no test runner configured for the frontend itself; backend
-modules with non-trivial parsers (`harmonize`, `recommend`) carry their
-own unit tests.
+There is no test runner configured for the frontend itself. Backend
+modules carry **~97 unit tests** across `library`, `bundles`,
+`harmonize`, `recommend`, `marketplace`, `settings`. They mutate
+`CLAUDE_KIT_HOME` via env var, so they all serialize on a
+crate-level `HOME_LOCK: Mutex<()>` declared in `main.rs` — when adding
+a new test module, follow the existing `with_temp_home` helper pattern
+that grabs the lock before setting the env var.
 
 For producing real installable builds (icon prep, per-OS gotchas,
 distribution caveats), see [`docs/build.md`](docs/build.md).

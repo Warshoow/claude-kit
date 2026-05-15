@@ -6,7 +6,7 @@ const features = [
   {
     icon: '📦',
     title: 'Plugin library',
-    desc: 'Import from the official marketplace or any local folder. Skills, commands, agents, hooks and MCP configs land in one central library you curate over time.',
+    desc: 'Import from the official marketplace, community sources, or any local folder. Create hooks and MCP configs from scratch directly in the app. Everything lives in one central library you curate over time.',
   },
   {
     icon: '🎯',
@@ -21,7 +21,7 @@ const features = [
   {
     icon: '✨',
     title: 'AI flows',
-    desc: 'Generate assets from a prompt, refine them through a streaming chat, or generate a full bundle in one conversation. Harmonize an existing bundle to bridge workflow gaps — assets from different plugins get rewritten together into a coherent whole, not just cleaned up. Per-hunk diff review before anything hits disk.',
+    desc: 'Generate assets or hooks from a prompt, refine them through a streaming chat, or build a full bundle in one conversation. Harmonize a bundle to bridge workflow gaps between plugins. Per-hunk diff review before anything hits disk.',
   },
   {
     icon: '🔄',
@@ -29,9 +29,9 @@ const features = [
     desc: 'When a plugin gains a new version, review each changed hunk before overwriting. Local edits are never silently replaced.',
   },
   {
-    icon: '🛍️',
-    title: 'Multiple marketplaces',
-    desc: 'Add community or private sources alongside the official catalog — paste a <code>marketplace.json</code> URL and browse everything from one grid.',
+    icon: '⌨️',
+    title: 'CLI — <code>ck</code>',
+    desc: 'Apply bundles from any terminal without opening the app. <code>ck apply &lt;bundle&gt;</code> drops the right symlinks in the current project. <code>ck list</code>, <code>ck installed</code>, <code>ck clean</code> round out the toolbox.',
   },
 ]
 
@@ -49,7 +49,7 @@ const steps = [
   {
     n: '03',
     title: 'Apply',
-    desc: 'One click and relative symlinks appear under <code>.claude/</code>. Switch project, apply a different bundle.',
+    desc: 'One click in the app — or <code>ck apply &lt;bundle&gt;</code> in any terminal. Relative symlinks appear under <code>.claude/</code>. Switch project, apply a different bundle.',
   },
   {
     n: '04',
@@ -81,7 +81,8 @@ const screenshots = [
         <p class="hero-tagline">
           A desktop app for managing skills, commands, agents, hooks and MCP configs
           as reusable bundles — imported from the marketplace, polished by AI,
-          applied to any project via symlinks in <code>.claude/</code>.
+          applied to any project via symlinks in <code>.claude/</code> or snapped on
+          from any terminal with <code>ck apply</code>.
         </p>
         <div class="hero-cta">
           <DownloadButton />

@@ -22,6 +22,7 @@ const router = useRouter();
 const { projectPath, library, bundles } = storeToRefs(store);
 const { theme, toggle: toggleTheme } = useTheme();
 
+const isLoading = ref(true);
 const welcomed = ref(localStorage.getItem("claude-kit:welcomed") === "1");
 
 const isFirstRun = computed(
@@ -104,7 +105,7 @@ function onSwitchView(name: string | undefined) {
 }
 
 onMounted(() => {
-  store.refreshAll();
+  store.refreshAll().finally(() => { isLoading.value = false; });
   refreshMaxState();
   // Track external resize → keep the maximize icon in sync.
   try {
@@ -153,6 +154,18 @@ async function installUpdate() {
 
 <template>
   <div class="flex h-screen flex-col">
+
+    <Transition name="splash">
+      <div
+        v-if="isLoading"
+        class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background"
+      >
+        <img :src="appIcon" alt="" class="size-12 rounded-xl" draggable="false" />
+        <span class="text-sm font-semibold tracking-tight text-foreground">claude-kit</span>
+        <div class="size-5 rounded-full border-2 border-muted border-t-foreground animate-spin" />
+      </div>
+    </Transition>
+
     <header
       data-tauri-drag-region
       class="topbar flex h-9 shrink-0 select-none items-center gap-3 border-b bg-card pr-0"
@@ -262,3 +275,11 @@ async function installUpdate() {
   </div>
 </template>
 
+<style scoped>
+.splash-leave-active {
+  transition: opacity 0.35s ease;
+}
+.splash-leave-to {
+  opacity: 0;
+}
+</style>

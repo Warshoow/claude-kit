@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import {
   AlertCircle,
   CheckCircle2,
+  Copy,
+  Check,
   Eye,
   EyeOff,
   ExternalLink,
@@ -22,30 +24,42 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@/components/ui/toggle-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { ref } from "vue";
 
 const aiStore = useAiStore();
 const marketplaceStore = useMarketplaceStore();
 const { settings, status, loading, generating } = storeToRefs(aiStore);
 const { sources: marketplaceSources } = storeToRefs(marketplaceStore);
 
-// Reveal toggle so the user can confirm what they typed without
-// leaving the API key in plain view by default.
+const activeTab = ref("ai");
+
+// ── AI tab ────────────────────────────────────────────────────────
+
 const showKey = ref(false);
 
-// Add-marketplace form state.
+const showCliFields = computed(
+  () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "claude-cli"
+);
+const showApiFields = computed(
+  () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "api"
+);
+const statusIcon = computed(() =>
+  !status.value ? null : status.value.mode === "none" ? AlertCircle : CheckCircle2
+);
+const statusTone = computed(() =>
+  !status.value ? "muted" : status.value.mode === "none" ? "warning" : "ok"
+);
+
+async function save() {
+  await aiStore.saveSettings();
+}
+
+// ── Marketplaces tab ──────────────────────────────────────────────
+
 const newMarketplaceUrl = ref("");
 const addingMarketplace = ref(false);
 
@@ -65,27 +79,57 @@ async function removeMarketplace(url: string) {
   await marketplaceStore.removeSource(url);
 }
 
-const showCliFields = computed(
-  () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "claude-cli"
-);
+// ── CLI tab ───────────────────────────────────────────────────────
 
-const showApiFields = computed(
-  () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "api"
-);
+const cliPlatform = ref<"linux" | "macos" | "windows">("linux");
+const copied = ref(false);
 
-const statusIcon = computed(() => {
-  if (!status.value) return null;
-  return status.value.mode === "none" ? AlertCircle : CheckCircle2;
+const BASE = "https://github.com/Warshoow/claude-kit/releases/latest/download";
+
+const cliBlocks = computed<{ label?: string; code: string }[]>(() => {
+  switch (cliPlatform.value) {
+    case "linux":
+      return [{
+        code:
+`mkdir -p ~/.local/bin
+curl -fsSL ${BASE}/ck-linux-x86_64 -o ~/.local/bin/ck
+chmod +x ~/.local/bin/ck`,
+      }];
+    case "macos":
+      return [
+        {
+          label: "Apple Silicon (M1 / M2 / M3)",
+          code:
+`curl -fsSL ${BASE}/ck-macos-arm64 -o /usr/local/bin/ck
+chmod +x /usr/local/bin/ck`,
+        },
+        {
+          label: "Intel",
+          code:
+`curl -fsSL ${BASE}/ck-macos-x86_64 -o /usr/local/bin/ck
+chmod +x /usr/local/bin/ck`,
+        },
+      ];
+    case "windows":
+      return [{
+        code:
+`# PowerShell — creates %USERPROFILE%\\.claude-kit\\bin and adds it to your PATH
+$bin = "$env:USERPROFILE\\.claude-kit\\bin"
+New-Item -ItemType Directory -Force $bin | Out-Null
+Invoke-WebRequest "${BASE}/ck-windows-x86_64.exe" -OutFile "$bin\\ck.exe"
+[Environment]::SetEnvironmentVariable("Path", "$env:Path;$bin", "User")
+# Re-open your terminal, then: ck --help`,
+      }];
+  }
 });
 
-const statusTone = computed(() => {
-  if (!status.value) return "muted";
-  return status.value.mode === "none" ? "warning" : "ok";
-});
-
-async function save() {
-  await aiStore.saveSettings();
+async function copyBlock(code: string) {
+  await navigator.clipboard.writeText(code);
+  copied.value = true;
+  setTimeout(() => { copied.value = false; }, 2000);
 }
+
+// ─────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
   await Promise.all([
@@ -98,11 +142,33 @@ onMounted(async () => {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
+
     <!-- Header -->
-    <div class="flex items-center gap-3 border-b bg-card/40 px-6 py-3">
-      <h2 class="text-sm font-semibold">Settings</h2>
+    <div class="flex items-center gap-3 border-b bg-card/40 px-6 py-2.5">
+      <span class="text-sm font-semibold">Settings</span>
+      <ToggleGroup
+        type="single"
+        :model-value="activeTab"
+        @update:model-value="(v) => v && (activeTab = v as typeof activeTab)"
+        variant="outline"
+        size="sm"
+      >
+        <ToggleGroupItem value="ai" class="gap-1.5">
+          <Sparkles class="size-3" />
+          AI
+        </ToggleGroupItem>
+        <ToggleGroupItem value="marketplaces" class="gap-1.5">
+          <Store class="size-3" />
+          Marketplaces
+        </ToggleGroupItem>
+        <ToggleGroupItem value="cli" class="gap-1.5">
+          <Terminal class="size-3" />
+          CLI
+        </ToggleGroupItem>
+      </ToggleGroup>
       <div class="flex-1" />
       <Button
+        v-if="activeTab === 'ai'"
         size="sm"
         :disabled="loading || generating"
         @click="save"
@@ -112,24 +178,11 @@ onMounted(async () => {
       </Button>
     </div>
 
-    <ScrollArea class="flex-1 min-h-0">
-      <div class="mx-auto w-full max-w-2xl space-y-6 px-6 py-6">
-        <!-- AI section -->
-        <Card>
-          <CardHeader>
-            <CardTitle class="flex items-center gap-2">
-              <Sparkles class="size-4" />
-              AI integration
-            </CardTitle>
-            <CardDescription>
-              Powers the "Generate with AI" buttons in the asset editor and
-              new-asset dialog. claude-kit auto-detects the
-              <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">claude</code>
-              CLI; if it isn't installed, configure any OpenAI-compatible
-              endpoint instead.
-            </CardDescription>
-          </CardHeader>
-          <CardContent class="space-y-5">
+    <!-- ── AI ─────────────────────────────────────────────────── -->
+    <div v-show="activeTab === 'ai'" class="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea class="h-full">
+          <div class="mx-auto w-full max-w-2xl space-y-6 px-6 py-6">
+
             <!-- Status banner -->
             <div
               v-if="status"
@@ -140,10 +193,7 @@ onMounted(async () => {
                   : 'border-primary/30 bg-primary/5 text-foreground'
               "
             >
-              <component
-                :is="statusIcon"
-                class="mt-0.5 size-3.5 shrink-0"
-              />
+              <component :is="statusIcon" class="mt-0.5 size-3.5 shrink-0" />
               <div class="space-y-0.5">
                 <div class="font-medium">{{ status.message }}</div>
                 <div
@@ -152,6 +202,15 @@ onMounted(async () => {
                 >{{ status.claude_cli_path }}</div>
               </div>
             </div>
+
+            <!-- Description -->
+            <p class="text-xs text-muted-foreground">
+              Powers the "Generate with AI" buttons in the asset editor and
+              new-asset dialog. claude-kit auto-detects the
+              <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">claude</code>
+              CLI; if it isn't installed, configure any OpenAI-compatible
+              endpoint instead.
+            </p>
 
             <!-- Mode selector -->
             <div class="space-y-1.5">
@@ -163,16 +222,12 @@ onMounted(async () => {
                 variant="outline"
                 class="w-full"
               >
-                <ToggleGroupItem value="auto" class="flex-1">
-                  Auto
-                </ToggleGroupItem>
+                <ToggleGroupItem value="auto" class="flex-1">Auto</ToggleGroupItem>
                 <ToggleGroupItem value="claude-cli" class="flex-1">
                   <Terminal class="size-3" />
                   Claude CLI
                 </ToggleGroupItem>
-                <ToggleGroupItem value="api" class="flex-1">
-                  API
-                </ToggleGroupItem>
+                <ToggleGroupItem value="api" class="flex-1">API</ToggleGroupItem>
               </ToggleGroup>
               <p class="text-[11px] text-muted-foreground">
                 <strong>Auto</strong> uses the Claude CLI if found, otherwise
@@ -204,7 +259,7 @@ onMounted(async () => {
             <Separator v-if="showApiFields" />
 
             <!-- API config -->
-            <div v-if="showApiFields" class="space-y-3">
+            <div v-if="showApiFields" class="space-y-4">
               <div class="space-y-1.5">
                 <Label for="ai-base-url">API base URL</Label>
                 <Input
@@ -263,26 +318,23 @@ onMounted(async () => {
                 </p>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <!-- Marketplaces -->
-        <Card>
-          <CardHeader>
-            <CardTitle class="flex items-center gap-2">
-              <Store class="size-4" />
-              Marketplaces
-            </CardTitle>
-            <CardDescription>
-              Sources for the Browse > Marketplace catalog. Each entry is
-              just a URL to a
+          </div>
+        </ScrollArea>
+    </div>
+
+    <!-- ── Marketplaces ───────────────────────────────────────── -->
+    <div v-show="activeTab === 'marketplaces'" class="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea class="h-full">
+          <div class="mx-auto w-full max-w-2xl space-y-6 px-6 py-6">
+
+            <p class="text-xs text-muted-foreground">
+              Sources for the Browse › Marketplace catalog. Each entry is a URL to a
               <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">marketplace.json</code>
-              file. The official Anthropic marketplace is built-in and
-              can't be removed.
-            </CardDescription>
-          </CardHeader>
-          <CardContent class="space-y-4">
-            <!-- Existing marketplaces list -->
+              file. The official Anthropic marketplace is built-in and can't be removed.
+            </p>
+
+            <!-- Sources list -->
             <div class="space-y-1.5">
               <div
                 v-for="src in marketplaceSources"
@@ -348,13 +400,77 @@ onMounted(async () => {
               <p class="text-[11px] text-muted-foreground">
                 The URL is fetched once to read its self-declared
                 <code class="font-mono text-[10.5px]">name</code> field. If it
-                doesn't return a valid marketplace JSON, it's rejected
-                without saving.
+                doesn't return a valid marketplace JSON, it's rejected without saving.
               </p>
             </form>
-          </CardContent>
-        </Card>
-      </div>
-    </ScrollArea>
+
+          </div>
+        </ScrollArea>
+    </div>
+
+    <!-- ── CLI ───────────────────────────────────────────────── -->
+    <div v-show="activeTab === 'cli'" class="flex-1 min-h-0 overflow-hidden">
+        <ScrollArea class="h-full">
+          <div class="mx-auto w-full max-w-2xl space-y-6 px-6 py-6">
+
+            <p class="text-xs text-muted-foreground">
+              Apply bundles from any project terminal without opening the app.
+              Download the <code class="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">ck</code>
+              binary for your platform and add it to your PATH.
+            </p>
+
+            <!-- Platform picker -->
+            <ToggleGroup
+              type="single"
+              :model-value="cliPlatform"
+              @update:model-value="(v) => v && (cliPlatform = v as typeof cliPlatform)"
+              variant="outline"
+              class="w-full"
+            >
+              <ToggleGroupItem value="linux" class="flex-1">Linux</ToggleGroupItem>
+              <ToggleGroupItem value="macos" class="flex-1">macOS</ToggleGroupItem>
+              <ToggleGroupItem value="windows" class="flex-1">Windows</ToggleGroupItem>
+            </ToggleGroup>
+
+            <!-- Command blocks -->
+            <div class="space-y-3">
+              <div v-for="(block, i) in cliBlocks" :key="i" class="space-y-1">
+                <p v-if="block.label" class="text-[11px] font-medium text-muted-foreground">
+                  {{ block.label }}
+                </p>
+                <div class="relative">
+                  <pre class="rounded-md border bg-muted/50 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-all">{{ block.code }}</pre>
+                  <button
+                    type="button"
+                    class="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    :title="copied ? 'Copied!' : 'Copy'"
+                    @click="copyBlock(block.code)"
+                  >
+                    <Check v-if="copied" class="size-3 text-green-500" />
+                    <Copy v-else class="size-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            <!-- Usage reference -->
+            <div class="space-y-1.5">
+              <p class="text-[11px] font-medium text-muted-foreground">Then from any project directory</p>
+              <div class="flex flex-wrap gap-2">
+                <code
+                  v-for="cmd in ['ck list', 'ck apply &lt;bundle&gt;', 'ck installed', 'ck clean']"
+                  :key="cmd"
+                  class="rounded bg-muted px-2 py-1 font-mono text-[11px]"
+                  v-html="cmd"
+                />
+              </div>
+            </div>
+
+          </div>
+        </ScrollArea>
+    </div>
+
   </div>
 </template>

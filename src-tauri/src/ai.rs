@@ -110,9 +110,23 @@ pub fn detect_claude_cli() -> Option<PathBuf> {
     None
 }
 
+/// Resolve the Claude CLI path: user-configured override first, then
+/// auto-detection. The override is only used when the file actually
+/// exists on disk so we don't get into a "configured but broken" state.
+pub fn resolve_cli() -> Option<PathBuf> {
+    let s = read_settings().ai;
+    if let Some(p) = s.claude_cli_path.as_deref().filter(|s| !s.trim().is_empty()) {
+        let path = PathBuf::from(p.trim());
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    detect_claude_cli()
+}
+
 pub fn ai_status() -> AiStatus {
     let s = read_settings().ai;
-    let cli = detect_claude_cli();
+    let cli = resolve_cli();
     let api_configured =
         s.api_base_url.as_deref().map(|x| !x.is_empty()).unwrap_or(false)
         && s.api_key.as_deref().map(|x| !x.is_empty()).unwrap_or(false);
@@ -298,7 +312,7 @@ fn stream_via_cli(
     user: &str,
     emit: &mut dyn FnMut(&str),
 ) -> Result<String> {
-    let cli = detect_claude_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
+    let cli = resolve_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
 
     // `--output-format text` streams the response straight to stdout —
     // no JSON envelope to parse, no buffering until the end. Stdin still
@@ -563,7 +577,7 @@ pub(crate) fn strip_code_fences(s: &str) -> String {
 }
 
 fn generate_via_cli_raw(system: &str, user: &str) -> Result<String> {
-    let cli = detect_claude_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
+    let cli = resolve_cli().ok_or_else(|| anyhow!("claude CLI not found on PATH"))?;
 
     // `claude -p --append-system-prompt "<system>" --output-format json` with
     // the user prompt piped in on stdin. The harmonizer and recommender flows

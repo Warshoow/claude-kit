@@ -168,6 +168,7 @@ export type AiBackendMode = "claude-cli" | "api" | "none";
 
 export interface AiSettings {
   mode: AiMode;
+  claude_cli_path?: string;
   api_base_url?: string;
   api_key?: string;
   api_model?: string;

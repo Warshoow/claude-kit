@@ -53,6 +53,12 @@ pub struct AiSettings {
     /// "auto" | "claude-cli" | "api"
     pub mode: AiMode,
 
+    /// Optional override for the Claude CLI binary path. When set and the
+    /// file exists, it takes precedence over auto-detection. Useful when
+    /// `claude` isn't on PATH (e.g. installed to a non-standard location).
+    #[serde(default)]
+    pub claude_cli_path: Option<String>,
+
     /// OpenAI-compatible base URL — e.g. `https://api.openai.com/v1`,
     /// `https://api.anthropic.com/v1` (Anthropic's OpenAI-compat endpoint),
     /// `http://localhost:11434/v1` for Ollama, etc.
@@ -72,6 +78,7 @@ impl Default for AiSettings {
     fn default() -> Self {
         Self {
             mode: AiMode::Auto,
+            claude_cli_path: None,
             api_base_url: None,
             api_key: None,
             api_model: None,

@@ -65,6 +65,10 @@ async function removeMarketplace(url: string) {
   await marketplaceStore.removeSource(url);
 }
 
+const showCliFields = computed(
+  () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "claude-cli"
+);
+
 const showApiFields = computed(
   () => settings.value.ai.mode === "auto" || settings.value.ai.mode === "api"
 );
@@ -175,6 +179,25 @@ onMounted(async () => {
                 falls back to your API config.
                 <strong>Claude CLI</strong> forces the local binary.
                 <strong>API</strong> forces the remote provider.
+              </p>
+            </div>
+
+            <!-- Claude CLI path override -->
+            <div v-if="showCliFields" class="space-y-1.5">
+              <Label for="cli-path">Claude CLI path</Label>
+              <Input
+                id="cli-path"
+                v-model="settings.ai.claude_cli_path"
+                type="text"
+                placeholder="Auto-detect"
+                class="font-mono text-[12px]"
+              />
+              <p class="text-[11px] text-muted-foreground">
+                Leave empty to auto-detect from
+                <code class="font-mono text-[10.5px]">PATH</code> and
+                <code class="font-mono text-[10.5px]">~/.claude/local/claude</code>.
+                Set an absolute path if <code class="font-mono text-[10.5px]">claude</code>
+                isn't on your PATH.
               </p>
             </div>
 

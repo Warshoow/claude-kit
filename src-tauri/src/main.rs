@@ -414,19 +414,13 @@ fn generate_bundle_chat(
                 let cleaned = ai::strip_code_fences(&full);
                 let (assets, bundle_name, bundle_description) =
                     bundle_chat::parse_bundle_response(&cleaned);
-                if assets.is_empty() {
-                    let _ = on_event.send(bundle_chat::BundleChatEvent::Error {
-                        message: "Model returned no parseable asset blocks. \
-                                  Try rephrasing your request."
-                            .to_string(),
-                    });
-                } else {
-                    let _ = on_event.send(bundle_chat::BundleChatEvent::Done {
-                        assets,
-                        bundle_name,
-                        bundle_description,
-                    });
-                }
+                let message = bundle_chat::extract_display_message(&cleaned);
+                let _ = on_event.send(bundle_chat::BundleChatEvent::Done {
+                    assets,
+                    bundle_name,
+                    bundle_description,
+                    message,
+                });
             }
             Err(e) => {
                 let _ = on_event.send(bundle_chat::BundleChatEvent::Error {

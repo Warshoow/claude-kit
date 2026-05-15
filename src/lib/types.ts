@@ -305,6 +305,9 @@ export type BundleChatEvent =
         assets: GeneratedAsset[];
         bundle_name: string | null;
         bundle_description: string | null;
+        /** Natural-language portion of the reply (bundle blocks stripped).
+         *  null when the model replied with only structural output. */
+        message: string | null;
       };
     }
   | { event: "error"; data: { message: string } };

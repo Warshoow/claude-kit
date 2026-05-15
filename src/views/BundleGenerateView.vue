@@ -27,7 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 const router = useRouter();
 const aiStore = useAiStore();
@@ -110,6 +109,17 @@ function kindLabel(k: AssetKind): string {
   return "Agent";
 }
 
+function hasBundleBlocks(content: string): boolean {
+  return content.includes("<<<ASSET-BEGIN:");
+}
+
+function assistantDisplayText(content: string): string {
+  return content
+    .replace(/BUNDLE-META:[\s\S]*?END-BUNDLE-META/g, "")
+    .replace(/<<<ASSET-BEGIN:[\s\S]*?<<<ASSET-END>>>/g, "")
+    .trim();
+}
+
 function descriptionFromContent(content: string): string {
   // Pull the `description:` line from the YAML frontmatter for a
   // quick preview without parsing the full document.
@@ -158,13 +168,18 @@ async function send() {
           role: "assistant",
           content: streamingBuffer.value,
         });
-        generatedAssets.value = ev.data.assets;
-        expanded.value = new Set();
-        if (!userTouchedName.value && ev.data.bundle_name) {
-          bundleName.value = ev.data.bundle_name;
-        }
-        if (!userTouchedDesc.value && ev.data.bundle_description) {
-          bundleDescription.value = ev.data.bundle_description;
+        // Only replace the asset list when the model actually emitted
+        // bundle blocks. An empty assets array means a conversational
+        // reply — keep whatever is already on the left.
+        if (ev.data.assets.length > 0) {
+          generatedAssets.value = ev.data.assets;
+          expanded.value = new Set();
+          if (!userTouchedName.value && ev.data.bundle_name) {
+            bundleName.value = ev.data.bundle_name;
+          }
+          if (!userTouchedDesc.value && ev.data.bundle_description) {
+            bundleDescription.value = ev.data.bundle_description;
+          }
         }
         streamingBuffer.value = "";
         streaming.value = false;
@@ -348,7 +363,7 @@ const canUndo = computed(() => undoStack.value.length > 0 && !streaming.value);
           >{{ createError }}</p>
         </div>
 
-        <ScrollArea class="flex-1">
+        <div class="flex-1 min-h-0 overflow-y-auto">
           <div class="space-y-3 px-6 py-4">
             <!-- Empty state -->
             <div
@@ -418,7 +433,7 @@ const canUndo = computed(() => undoStack.value.length > 0 && !streaming.value);
               >{{ streamingBuffer || "…" }}</pre>
             </div>
           </div>
-        </ScrollArea>
+        </div>
       </div>
 
       <!-- Right: chat panel -->
@@ -470,16 +485,20 @@ const canUndo = computed(() => undoStack.value.length > 0 && !streaming.value);
                 class="max-w-[90%] rounded-lg rounded-tr-sm bg-primary/10 px-3 py-2 text-[12.5px] leading-snug"
               >{{ msg.content }}</div>
             </div>
-            <div v-else class="space-y-1">
+            <div v-else class="space-y-1.5">
+              <!-- Natural-language reply text (stripped of bundle blocks) -->
               <div
+                v-if="assistantDisplayText(msg.content)"
+                class="rounded-lg border bg-background/60 px-2.5 py-2 text-[12px] leading-relaxed text-foreground whitespace-pre-wrap"
+              >{{ assistantDisplayText(msg.content) }}</div>
+              <!-- Bundle-updated pill — only when model emitted asset blocks -->
+              <div
+                v-if="hasBundleBlocks(msg.content)"
                 class="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-muted-foreground"
               >
                 <Sparkles class="size-3 text-primary" />
-                <span>Bundle updated</span>
+                <span>Bundle updated — see assets on the left</span>
               </div>
-              <div
-                class="rounded-lg border bg-background/60 px-2.5 py-2 text-[11.5px] text-muted-foreground"
-              >See the list on the left for the new state.</div>
             </div>
           </template>
 

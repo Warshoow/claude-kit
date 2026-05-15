@@ -42,25 +42,30 @@ pub enum BundleChatEvent {
     /// accumulates these in a live preview during generation.
     Token { delta: String },
     /// Stream completed cleanly. Carries the parsed result.
+    /// `assets` is empty when the model replied conversationally
+    /// (no bundle blocks emitted); the frontend should keep the
+    /// current asset list unchanged in that case.
+    /// `message` holds the natural-language portion of the reply
+    /// (bundle/asset blocks stripped), if any.
     Done {
         assets: Vec<GeneratedAsset>,
         bundle_name: Option<String>,
         bundle_description: Option<String>,
+        message: Option<String>,
     },
-    /// Stream failed (backend error or parser couldn't find any asset
-    /// blocks). Frontend rolls back the optimistic user message.
+    /// Stream failed (network / AI backend error).
+    /// Frontend rolls back the optimistic user message.
     Error { message: String },
 }
 
 pub const SYSTEM_PROMPT: &str = "\
-You design coherent groups of Claude Code assets — a \"bundle\". A bundle is a small set of related assets that work together for a specific developer workflow (e.g. \"Python backend with pytest\", \"React + Tailwind frontend\", \"Rust embedded firmware\").\n\
+You design and refine Claude Code \"bundles\" — coherent groups of assets (skills, commands, agents) for a specific developer workflow.\n\
 \n\
-Asset kinds you may produce:\n\
-- skills: auto-activate based on file/context. Use when the user is working on something specific. The skill's description field is what triggers it.\n\
-- commands: invoked manually by the user with /<name>. Use for explicit short tasks.\n\
-- agents: sub-agents specialized for one kind of task. Use sparingly.\n\
+Respond in ONE of two modes depending on what the user asks:\n\
 \n\
-EXACT output format — emit ONLY this, no commentary, no preamble:\n\
+━━ MODE 1 — BUNDLE UPDATE ━━\n\
+Use this when the user wants to create, add, change, or remove assets.\n\
+Start with 1-2 sentences summarising what you did or changed (e.g. \"Added a /lint command and updated the skill description.\"). Then output the COMPLETE new bundle (every asset, including unchanged ones) using this exact format:\n\
 \n\
 BUNDLE-META:\n\
 name: <kebab-case-slug>\n\
@@ -74,15 +79,18 @@ description: <one-sentence description that explains when this asset activates /
 <markdown body>\n\
 <<<ASSET-END>>>\n\
 \n\
-Repeat the asset block for every asset in the bundle. <kind> MUST be one of: skills, commands, agents. <asset-name> MUST be a kebab-case slug, 1-64 chars, [a-z0-9-_] only.\n\
+Repeat the <<<ASSET-BEGIN>>> block for every asset. Rules:\n\
+- <kind> MUST be one of: skills, commands, agents.\n\
+  skills auto-activate by context; commands are invoked with /<name>; agents are specialized sub-agents.\n\
+- <asset-name> MUST be kebab-case, 1-64 chars, [a-z0-9-_] only, unique within the bundle.\n\
+- 3-8 assets is typical. Don't pad.\n\
+- Each asset frontmatter MUST have a valid one-sentence description.\n\
+- No ``` fences around the whole output.\n\
 \n\
-Rules:\n\
-- Output the COMPLETE bundle every turn, including unchanged assets from previous turns — the parser only reads the latest message.\n\
-- Keep bundles small and coherent: 3 to 8 assets is typical. Don't pad.\n\
-- Each asset's frontmatter MUST have a valid one-sentence description.\n\
-- Asset names must be unique within a single bundle. Pick distinct slugs.\n\
-- No fences around the whole output. No `\\`\\`\\`` blocks.\n\
-- If the user asks something that isn't a bundle request, still output a minimal bundle answering as best you can.\n";
+━━ MODE 2 — CONVERSATION ━━\n\
+Use this when the user asks a question, wants an explanation, or just wants to discuss.\n\
+Reply in plain text — NO bundle blocks. Your reply appears directly in the chat.\n\
+Examples: explaining what an asset does, suggesting naming ideas, answering questions about Claude Code.\n";
 
 pub fn build_user_prompt(history: &[ChatMessage], user_message: &str) -> String {
     let mut out = String::new();
@@ -92,9 +100,9 @@ pub fn build_user_prompt(history: &[ChatMessage], user_message: &str) -> String 
         out.push_str("\n\nOutput the bundle now.");
     } else {
         out.push_str(
-            "Conversation so far. Each ASSISTANT turn was the full bundle output \
-             produced at that step. Treat the latest USER request as a refinement \
-             to be merged into a NEW complete bundle.\n\n",
+            "Conversation so far. ASSISTANT turns that produced a bundle contain \
+             the full asset set at that point. Respond in the appropriate mode \
+             (bundle update or conversation) based on the latest user message.\n\n",
         );
         for msg in history {
             let role = if msg.role == "assistant" {
@@ -107,11 +115,47 @@ pub fn build_user_prompt(history: &[ChatMessage], user_message: &str) -> String 
             out.push_str(msg.content.trim());
             out.push_str("\n\n");
         }
-        out.push_str("USER (latest refinement):\n");
+        out.push_str("USER:\n");
         out.push_str(user_message.trim());
-        out.push_str("\n\nOutput the full new bundle now.");
     }
     out
+}
+
+/// Extract the natural-language portions of a model reply by stripping
+/// the structured BUNDLE-META and ASSET blocks. Returns `None` when
+/// the whole reply was structural (nothing left after stripping).
+pub fn extract_display_message(raw: &str) -> Option<String> {
+    let mut text = raw.to_string();
+
+    // Remove BUNDLE-META block
+    if let Some(start) = text.find("BUNDLE-META:") {
+        let end = text[start..]
+            .find("END-BUNDLE-META")
+            .map(|p| start + p + "END-BUNDLE-META".len())
+            .unwrap_or(text.len());
+        text.replace_range(start..end, "");
+    }
+
+    // Remove all ASSET blocks iteratively
+    loop {
+        match text.find("<<<ASSET-BEGIN:") {
+            None => break,
+            Some(start) => {
+                let end = text[start..]
+                    .find("<<<ASSET-END>>>")
+                    .map(|p| start + p + "<<<ASSET-END>>>".len())
+                    .unwrap_or(text.len());
+                text.replace_range(start..end, "");
+            }
+        }
+    }
+
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 /// Public for tests and main.rs to drive parsing directly if ever

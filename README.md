@@ -98,10 +98,13 @@ Symlinks are **relative** — they survive if you move the project or the librar
 
 **AI integration** *(opt-in, configured in Settings)*
 
-Two backends, auto-detected: the local Claude Code CLI (zero-config — uses your existing subscription) or any OpenAI-compatible API endpoint (Anthropic, OpenAI, Ollama, LM Studio, vLLM…).
+Two backends, auto-detected: the local Claude Code CLI (zero-config — uses your existing subscription) or any OpenAI-compatible API endpoint (Anthropic, OpenAI, Ollama, LM Studio, vLLM…). Streaming is supported for all chat-based flows.
 
-- **Generate an asset** — describe what you want, the model produces a Claude-Code-shaped file. Available both when creating a new asset and when editing an existing one (with a *Refine* mode that sends current content as context).
-- **Harmonize a bundle** — rewrite every asset of a bundle to bridge workflow gaps and unify terminology, so the bundle works as a cohesive whole rather than a stack of independent files. Per-hunk diff review with word-level highlighting before any write. Assets the harmonizer touched get a `✨ Harmonized` badge in the library.
+- **Generate an asset** — describe what you want, the model produces a Claude-Code-shaped file.
+- **Refine an asset via chat** — iterate on any existing asset through a streaming conversation; the current file content is sent as context so the model knows what it's editing.
+- **Generate a bundle via chat** — describe a workflow in plain language and have the model produce a complete, coherent set of assets in one conversation. Each reply is a full snapshot, so you can keep refining until the bundle looks right.
+- **AI-generated hooks** — the *+ New Hook* dialog can generate a hook script from a prompt (event + matcher + description), and auto-registers it into `settings.json` on apply.
+- **Harmonize a bundle** — rewrite every markdown asset of a bundle to bridge workflow gaps and unify terminology, so the bundle works as a cohesive whole rather than a stack of independent files. Per-hunk diff review with word-level highlighting before any write. Hooks and MCP entries are left untouched. Assets the harmonizer touched get a `✨ Harmonized` badge in the library.
 
 **MCP support**
 - Import `.mcp.json` from any plugin
@@ -163,12 +166,11 @@ See [`docs/build.md`](docs/build.md) for the full procedure including icon gener
 
 ## Roadmap
 
-See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. Big features that have shipped: AI generator + harmonizer, force-overwrite plugin updates with hunk-level review, multiple marketplaces, share-bundle-by-code, in-app auto-update, VitePress landing site at `website/`.
+See [`docs/roadmap.md`](docs/roadmap.md) for the full picture. Big features that have shipped: AI generator + refine chat + bundle generator via chat + harmonizer, AI-generated hooks, manual MCP create/edit/delete, force-overwrite plugin updates with hunk-level review, multiple marketplaces, share-bundle-by-code, in-app auto-update, VitePress landing site at `website/`.
 
 What's still to do:
 
 - **CLI tool `ck`** — `ck apply <bundle>` from a project terminal (plan in [`docs/cli-roadmap.md`](docs/cli-roadmap.md))
-- **Streaming** for the AI generator (today the dialog blocks until the full response arrives)
 - **Content-aware bundle recommender** — the feature exists but is hidden in the UI; needs a pre-cache or agentic flow to stop hallucinating asset names before being re-enabled
 - **Code signing** (Windows Authenticode + macOS notarization) to remove the SmartScreen / Gatekeeper warnings on first install
 

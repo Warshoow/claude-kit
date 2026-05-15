@@ -21,7 +21,7 @@ const features = [
   {
     icon: '✨',
     title: 'AI flows',
-    desc: 'Generate assets from a prompt. Or harmonize a whole bundle — assets pulled from different plugins have no shared logic, which creates gaps in your workflow. Harmonization rewrites them together so they form a coherent, functional whole instead of a patchwork. Per-hunk diff review before anything hits disk.',
+    desc: 'Generate assets from a prompt, refine them through a streaming chat, or generate a full bundle in one conversation. Harmonize an existing bundle to bridge workflow gaps — assets from different plugins get rewritten together into a coherent whole, not just cleaned up. Per-hunk diff review before anything hits disk.',
   },
   {
     icon: '🔄',

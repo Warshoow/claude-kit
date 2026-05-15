@@ -13,10 +13,13 @@ keeps a central library at `~/.claude-assets/` and "applies" bundles to
 a project, which materializes as **relative symlinks** inside that
 project's `.claude/` directory.
 
-Two AI flows are exposed in the UI: an **asset generator** and a
-**bundle harmonizer** (rewrites every asset of a bundle to fill
-workflow gaps and unify terminology, per-hunk review before writing).
-A third — the **bundle recommender** — is fully implemented backend +
+Four AI flows are exposed in the UI:
+- **Asset generator** — describe what you want, get a Claude-Code-shaped file.
+- **Asset refine chat** — iterate on an existing asset through a streaming back-and-forth conversation; current content is sent as context.
+- **Bundle generator via chat** — generate a complete, coherent bundle from a conversation; each turn produces the full asset set so the UI can always display a clean diff.
+- **Bundle harmonizer** — rewrites every markdown asset of a bundle to bridge workflow gaps and unify terminology, per-hunk diff review before writing. Hooks and MCP entries are skipped (not freeform markdown).
+
+A fifth — the **bundle recommender** — is fully implemented backend +
 frontend but its entry-point button is intentionally hidden right now;
 the route `/recommend` still works for direct testing. It's pending a
 content-aware rebuild (the model currently sees only plugin
@@ -33,8 +36,14 @@ Persistence layout:
   for asset content. Edits go here.
 - `~/.claude-assets/library/hooks/<plugin>/<file>` — hook scripts copied
   verbatim from imported plugins.
+- `~/.claude-assets/library/hooks/__local__/<file>` — AI-generated or
+  manually created local hooks. Each script has a sidecar
+  `<file>.meta.json` (`LocalHookMeta { event, matcher }`) so the app
+  can reconstruct the `settings.json` registration on any machine.
 - `~/.claude-assets/library/mcp/<plugin>.json` — MCP server configs
   copied from imported plugins, merged into the project on apply.
+- `~/.claude-assets/library/mcp/__local__/<name>.json` — MCP server
+  configs created manually in the app (not from a plugin import).
 - `~/.claude-assets/library/.origins.json` — provenance map keyed
   `<kind>:<name>` → `Origin { marketplace, plugin, imported_at, version?, git_ref? }`
   for assets that came from a marketplace import. Used to group the UI
@@ -112,12 +121,22 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
     — stamped by the harmonize flow on every asset that actually got
     rewritten. The library scan attaches `harmonized_at` to each
     `Asset` so the UI can render the badge.
-  - Hook + MCP listing helpers (`list_hooks`, `list_mcp`,
-    `remove_plugin`).
+  - Hook CRUD for local hooks: `create_local_hook`, `update_local_hook`,
+    `delete_local_hook`, `read_local_hook` — operate on the
+    `hooks/__local__/` folder and maintain the `.meta.json` sidecar.
+  - MCP CRUD for local configs: `create_local_mcp`, `update_local_mcp`,
+    `delete_local_mcp`, `read_local_mcp` — operate on `mcp/__local__/`.
+  - Listing helpers (`list_hooks`, `list_mcp`) surface both plugin-
+    imported and locally-created entries in one flat list.
+  - `remove_plugin`.
 - **`bundles.rs`** — bundles are JSON files at
   `~/.claude-assets/bundles/<name>.json`, each holding a list of
-  `BundleRef { kind, name }` plus an optional `description`. Also owns
-  the **share-by-code** flow:
+  `BundleRef { kind: BundleEntryKind, name, plugin? }` plus an optional
+  `description`. `BundleEntryKind` is wider than `AssetKind` — it adds
+  `Hooks` and `Mcp` variants so hooks and MCP configs can be bundle
+  members. `BundleEntryKind::as_asset_kind()` maps back to `AssetKind`
+  and returns `None` for hooks/mcp (used by harmonize to skip them).
+  Also owns the **share-by-code** flow:
   - `encode_bundle_share(name)` — packs the bundle's manifest +
     every asset's full content + each asset's `Origin` and
     `harmonized_at` into a `ShareManifest { v: 1, name, description?,
@@ -160,7 +179,10 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   portability. Hooks get their own symlink path
   (`.claude/hooks/<plugin>/<file>`) and MCP entries are merged into
   `.claude/mcp.json` by deep-extending only keys we don't already
-  recognize.
+  recognize. **Local hooks** are also auto-registered into the project's
+  `settings.json` (`hooks[event][matcher]` array) via `register_hook` /
+  `unregister_hook` — these functions are idempotent and merge safely
+  into an existing settings file.
 - **`settings.rs`** — `~/.claude-assets/settings.json` read/write.
   Holds `ai: AiSettings { mode, api_base_url, api_key, api_model }`
   and `marketplaces: Vec<MarketplaceSource>`. The official marketplace
@@ -169,23 +191,36 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
 - **`ai.rs`** — backend dispatch for AI calls. `detect_claude_cli()`
   hunts `which claude` then `~/.claude/local/claude`. `ai_status()`
   reports the effective backend ("claude-cli" | "api" | "none") with
-  a one-line user-facing message. The public `generate_text(system,
-  user)` is the lower-level entry point that both `generate_asset`
-  (used by the asset generator UI) and the harmonizer / recommender
-  modules call. API mode talks to any OpenAI-compatible
-  `{base_url}/chat/completions` endpoint. Output is post-processed by
-  `strip_code_fences` because some models still wrap their reply.
+  a one-line user-facing message. Two call paths:
+  - `generate_text(system, user)` — blocking single-turn call used by
+    the asset generator, harmonizer, and recommender.
+  - `generate_text_streaming(system, messages, on_token)` — streaming
+    multi-turn call used by the asset refine chat and bundle generator;
+    takes a `Vec<ChatMessage>` history and calls `on_token` for each
+    delta. API mode emits SSE-style chunks via the Tauri event channel.
+  API mode talks to any OpenAI-compatible `{base_url}/chat/completions`
+  endpoint. Output is post-processed by `strip_code_fences`.
+- **`bundle_chat.rs`** — chat-based bundle generator. Wire format uses
+  `BUNDLE-META: … END-BUNDLE-META` for name/description and
+  `<<<ASSET-BEGIN: kind/name>>>…<<<ASSET-END>>>` for each asset (mirrors
+  the harmonizer's delimiter style). Each model turn must return the
+  **complete** asset set (including unchanged assets from prior turns)
+  so the parser always has a self-contained snapshot to materialize.
+  `generate_bundle_chat` streams tokens to the frontend via
+  `BundleChatEvent` (Token / Done / Error); `parse_bundle_response`
+  extracts assets from the raw text; `materialize_generated_bundle`
+  writes them to disk and creates the bundle JSON.
 - **`harmonize.rs`** — `harmonize_bundle(name, instruction?)` packs
-  every asset of the bundle into a delimited prompt
-  (`<<<HARMONIZE-BEGIN: kind/name>>>…<<<HARMONIZE-END>>>`), calls
-  `ai::generate_text`, and parses the response back into asset
-  before/after pairs. The parser tolerates truncated blocks and
-  preamble text. Unit-tested. **System prompt focus is workflow
-  gap-filling** — bridging steps between assets that don't reference
-  each other, unifying terminology for the same concept — not just
-  cosmetic style consistency. The bundle's `description` (if any) is
-  passed as an optional hint to ground the rewrite in the user's
-  stated intent.
+  every **markdown** asset of the bundle (skills/commands/agents only —
+  hooks and MCP entries are skipped via `BundleEntryKind::as_asset_kind()`)
+  into a delimited prompt (`<<<HARMONIZE-BEGIN: kind/name>>>…<<<HARMONIZE-END>>>`),
+  calls `ai::generate_text`, and parses the response back into asset
+  before/after pairs. The parser tolerates truncated blocks and preamble
+  text. Unit-tested. **System prompt focus is workflow gap-filling** —
+  the model first reads all assets to infer the bundle's purpose, then
+  bridges steps between assets that don't reference each other and
+  unifies terminology. The bundle's `description` (if any) is passed as
+  an optional hint; the assets are the source of truth.
 - **`recommend.rs`** — `recommend_bundle(user_need)` builds a compact
   marketplace catalog string + a listing of the user's existing
   library, sends them to the model, expects strict JSON back.
@@ -216,6 +251,8 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   compatibility. Top-level routes:
   - `/bundles`, `/bundles/:name`
   - `/bundles/:name/harmonize` (per-hunk AI rewrite review)
+  - `/bundles/generate` (chat-based bundle generation — placed before
+    `/:name` in the router so it isn't captured as a bundle name)
   - `/recommend` (top-level — placed outside `/bundles/` to avoid
     shadowing `/bundles/:name`)
   - `/browse` → redirect `/browse/library`
@@ -298,18 +335,32 @@ cd website && npm run build       # → website/.vitepress/dist/
 ```
 
 There is no test runner configured for the frontend itself. Backend
-modules carry **~97 unit tests** across `library`, `bundles`,
-`harmonize`, `recommend`, `marketplace`, `settings`. They mutate
-`CLAUDE_KIT_HOME` via env var, so they all serialize on a
-crate-level `HOME_LOCK: Mutex<()>` declared in `main.rs` — when adding
-a new test module, follow the existing `with_temp_home` helper pattern
-that grabs the lock before setting the env var.
+modules carry **~145 unit tests** across `library`, `bundles`,
+`harmonize`, `recommend`, `marketplace`, `settings`, `project`, and
+`bundle_chat`. They mutate `CLAUDE_KIT_HOME` via env var, so they all
+serialize on a crate-level `HOME_LOCK: Mutex<()>` declared in `main.rs`
+— when adding a new test module, use `crate::HOME_LOCK` (not a
+per-module static) so tests from different modules don't race on the env
+var when the test runner parallelises across modules.
 
 For producing real installable builds (icon prep, per-OS gotchas,
 distribution caveats), see [`docs/build.md`](docs/build.md).
 
 ## Gotchas
 
+- **`BundleEntryKind` vs `AssetKind`** — `BundleEntryKind` is the wider
+  enum used in bundle JSON (`skills | commands | agents | hooks | mcp`).
+  `AssetKind` is the narrower enum for the markdown-asset flows
+  (library scan, harmonize, update). Use `BundleEntryKind::as_asset_kind()`
+  to convert; it returns `None` for hooks/mcp. Never store a `BundleRef`
+  with an `AssetKind` directly — the bundle JSON will reject it at parse
+  time.
+- **Local hooks require a `.meta.json` sidecar.** Every script under
+  `hooks/__local__/` needs a matching `<file>.meta.json` carrying
+  `LocalHookMeta { event, matcher }`. Without it the hook can't be
+  re-registered into `settings.json` on another machine (or after a
+  clean install). Always write them together via `create_local_hook` /
+  `update_local_hook` — never write the script file directly.
 - **Skills vs commands/agents asymmetry** lives everywhere:
   `scan_kind`, `asset_file_path`, `source_path`, `target_path`, and
   `import_from_plugin` all branch on `AssetKind::Skills` to treat it

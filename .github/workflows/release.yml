@@ -16,12 +16,20 @@ jobs:
         include:
           - platform: ubuntu-22.04
             args: ''
+            cli_src: target/release/ck
+            cli_name: ck-linux-x86_64
           - platform: windows-latest
             args: ''
+            cli_src: target/release/ck.exe
+            cli_name: ck-windows-x86_64.exe
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
+            cli_src: target/aarch64-apple-darwin/release/ck
+            cli_name: ck-macos-arm64
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
+            cli_src: target/x86_64-apple-darwin/release/ck
+            cli_name: ck-macos-x86_64
 
     runs-on: ${{ matrix.platform }}
 
@@ -71,3 +79,14 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Build and upload CLI binary
+        # The Tauri build above already compiled claude-kit-core; Cargo
+        # only needs to link the thin CLI binary here, so this is fast.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          cargo build --release -p claude-kit-cli ${{ matrix.args }}
+          cp "${{ matrix.cli_src }}" "${{ matrix.cli_name }}"
+          gh release upload "${{ github.ref_name }}" "${{ matrix.cli_name }}" --clobber

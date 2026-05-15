@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -124,7 +124,7 @@ onMounted(() => {
   setTimeout(checkForAppUpdate, 3000);
 });
 
-const pendingUpdate = ref<Update | null>(null);
+const pendingUpdate = shallowRef<Update | null>(null);
 const updateInstalling = ref(false);
 
 async function checkForAppUpdate() {

@@ -188,13 +188,13 @@ function cancel() {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.55;
-  min-height: 220px;
+  min-height: 360px;
 }
 </style>
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="overflow-hidden sm:max-w-2xl">
+    <DialogContent class="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <Webhook class="size-4" />

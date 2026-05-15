@@ -120,6 +120,15 @@ pub fn resolve_cli() -> Option<PathBuf> {
         if path.is_file() {
             return Some(path);
         }
+        // On Windows users often omit the .exe extension when typing a path.
+        // is_file() requires the exact name, so try appending it as a fallback.
+        #[cfg(target_os = "windows")]
+        if path.extension().is_none() {
+            let with_exe = path.with_extension("exe");
+            if with_exe.is_file() {
+                return Some(with_exe);
+            }
+        }
     }
     detect_claude_cli()
 }

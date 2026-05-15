@@ -4,22 +4,16 @@
 // a stray cmd window behind it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod ai;
-mod bundle_chat;
-mod bundles;
-mod harmonize;
-mod library;
-mod marketplace;
-mod project;
-mod recommend;
-mod settings;
-mod update;
-
-// Single lock shared across all test modules that mutate CLAUDE_KIT_HOME.
-// Using crate::HOME_LOCK from each module's #[cfg(test)] block prevents races
-// between modules that otherwise run in parallel.
-#[cfg(test)]
-pub static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use claude_kit_core::ai;
+use claude_kit_core::bundle_chat;
+use claude_kit_core::bundles;
+use claude_kit_core::harmonize;
+use claude_kit_core::library;
+use claude_kit_core::marketplace;
+use claude_kit_core::project;
+use claude_kit_core::recommend;
+use claude_kit_core::settings;
+use claude_kit_core::update;
 
 use bundles::{Bundle, BundleRef, ImportShareResult};
 use library::{ensure_layout, scan_all, Asset, AssetKind, HookEntry, ImportResult, McpEntry};
@@ -371,8 +365,31 @@ fn refine_asset_chat(
     history: Vec<ai::ChatMessage>,
     user_message: String,
 ) -> Result<(), String> {
-    ai::refine_asset_chat(on_event, kind, current_content, history, user_message)
-        .map_err(|e| e.to_string())
+    if user_message.trim().is_empty() {
+        return Err("message is empty".to_string());
+    }
+    let system = ai::build_refine_system_prompt(kind);
+    let user = ai::build_refine_user_prompt(&current_content, &history, &user_message);
+    let chan_token = on_event.clone();
+    std::thread::spawn(move || {
+        let result = ai::stream_text(&system, &user, |delta| {
+            let _ = chan_token.send(ai::StreamEvent::Token {
+                delta: delta.to_string(),
+            });
+        });
+        match result {
+            Ok(full) => {
+                let cleaned = ai::strip_code_fences(&full);
+                let _ = on_event.send(ai::StreamEvent::Done { content: cleaned });
+            }
+            Err(e) => {
+                let _ = on_event.send(ai::StreamEvent::Error {
+                    message: e.to_string(),
+                });
+            }
+        }
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -381,8 +398,44 @@ fn generate_bundle_chat(
     history: Vec<ai::ChatMessage>,
     user_message: String,
 ) -> Result<(), String> {
-    bundle_chat::generate_bundle_chat(on_event, history, user_message)
-        .map_err(|e| e.to_string())
+    if user_message.trim().is_empty() {
+        return Err("message is empty".to_string());
+    }
+    let user_prompt = bundle_chat::build_user_prompt(&history, &user_message);
+    let chan_token = on_event.clone();
+    std::thread::spawn(move || {
+        let result = ai::stream_text(bundle_chat::SYSTEM_PROMPT, &user_prompt, |delta| {
+            let _ = chan_token.send(bundle_chat::BundleChatEvent::Token {
+                delta: delta.to_string(),
+            });
+        });
+        match result {
+            Ok(full) => {
+                let cleaned = ai::strip_code_fences(&full);
+                let (assets, bundle_name, bundle_description) =
+                    bundle_chat::parse_bundle_response(&cleaned);
+                if assets.is_empty() {
+                    let _ = on_event.send(bundle_chat::BundleChatEvent::Error {
+                        message: "Model returned no parseable asset blocks. \
+                                  Try rephrasing your request."
+                            .to_string(),
+                    });
+                } else {
+                    let _ = on_event.send(bundle_chat::BundleChatEvent::Done {
+                        assets,
+                        bundle_name,
+                        bundle_description,
+                    });
+                }
+            }
+            Err(e) => {
+                let _ = on_event.send(bundle_chat::BundleChatEvent::Error {
+                    message: e.to_string(),
+                });
+            }
+        }
+    });
+    Ok(())
 }
 
 #[tauri::command]

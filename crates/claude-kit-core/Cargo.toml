@@ -1,18 +1,12 @@
 [package]
-name = "claude-kit-app"
+name = "claude-kit-core"
 version = "0.3.2"
 edition = "2021"
 
-[build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+[lib]
+name = "claude_kit_core"
 
 [dependencies]
-claude-kit-core = { path = "../crates/claude-kit-core" }
-tauri = { version = "2.0", features = [] }
-tauri-plugin-dialog = "2.0"
-tauri-plugin-opener = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 gray_matter = "0.2"
@@ -25,6 +19,5 @@ tempfile = "3"
 time = { version = "0.3", features = ["formatting"] }
 base64 = "0.22"
 
-[features]
-default = ["custom-protocol"]
-custom-protocol = ["tauri/custom-protocol"]
+[dev-dependencies]
+tempfile = "3"

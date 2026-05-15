@@ -1,0 +1,13 @@
+[package]
+name = "claude-kit-cli"
+version = "0.3.2"
+edition = "2021"
+
+[[bin]]
+name = "ck"
+path = "src/main.rs"
+
+[dependencies]
+claude-kit-core = { path = "../claude-kit-core" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"

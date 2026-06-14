@@ -85,14 +85,9 @@ with three members:
 - **`crates/claude-kit-cli/`** — the `ck` CLI binary (clap-based, see
   "CLI" below), also a thin wrapper over `claude_kit_core`.
 
-> ⚠️ **Stale duplicates in `src-tauri/src/`.** The workspace refactor
-> left copies of the logic modules (`bundles.rs`, `library.rs`,
-> `project.rs`, `ai.rs`, …) sitting in `src-tauri/src/` next to
-> `main.rs`. They are **dead code** — `main.rs` never declares them as
-> modules, so they are not compiled (they reference `crate::HOME_LOCK`,
-> which only exists in the core crate). Some have already diverged from
-> the live copies. **Edit logic only in `crates/claude-kit-core/src/`.**
-> These files should be deleted.
+`src-tauri/src/` contains **only** `main.rs` — all logic modules live
+in the core crate. Edit logic in `crates/claude-kit-core/src/`, never
+alongside `main.rs`.
 
 - Frontend: Vue 3 SFCs in `src/`. State lives in domain-decomposed
   Pinia stores at [`src/stores/`](src/stores/) (one per concern, listed

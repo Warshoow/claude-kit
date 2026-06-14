@@ -5,7 +5,8 @@ with code in this repository.
 
 ## What this app does
 
-claude-kit is a Tauri 2 + Vue 3 desktop app for managing Claude Code
+claude-kit is a Tauri 2 + Vue 3 desktop app (plus a companion `ck` CLI)
+for managing Claude Code
 **skills, commands, agents, hooks and MCP server configs** as reusable
 bundles, with import from any number of `marketplace.json` sources (the
 official `claude-plugins-official` catalog ships built-in). The user
@@ -67,16 +68,37 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
 
 ## Architecture
 
-**Two processes, one IPC contract.**
+**Cargo workspace: one core library, two binaries, one IPC contract.**
+
+The Rust side is a Cargo workspace (root [`Cargo.toml`](Cargo.toml))
+with three members:
+
+- **`crates/claude-kit-core/`** — `claude_kit_core`, the library that
+  holds **all** business logic (the "Backend modules" below live here,
+  under [`crates/claude-kit-core/src/`](crates/claude-kit-core/src/)).
+  Tauri-free, so both binaries depend on it → zero duplication, zero
+  drift between the desktop app and the CLI.
+- **`src-tauri/`** — the desktop app binary. [`src-tauri/src/main.rs`](src-tauri/src/main.rs)
+  `use claude_kit_core::*` and exposes thin `#[tauri::command]`
+  wrappers around the core functions. It declares **no** `mod` of its
+  own for the logic modules.
+- **`crates/claude-kit-cli/`** — the `ck` CLI binary (clap-based, see
+  "CLI" below), also a thin wrapper over `claude_kit_core`.
+
+> ⚠️ **Stale duplicates in `src-tauri/src/`.** The workspace refactor
+> left copies of the logic modules (`bundles.rs`, `library.rs`,
+> `project.rs`, `ai.rs`, …) sitting in `src-tauri/src/` next to
+> `main.rs`. They are **dead code** — `main.rs` never declares them as
+> modules, so they are not compiled (they reference `crate::HOME_LOCK`,
+> which only exists in the core crate). Some have already diverged from
+> the live copies. **Edit logic only in `crates/claude-kit-core/src/`.**
+> These files should be deleted.
 
 - Frontend: Vue 3 SFCs in `src/`. State lives in domain-decomposed
   Pinia stores at [`src/stores/`](src/stores/) (one per concern, listed
   below). Routing is hash-based via
   [`src/router/index.ts`](src/router/index.ts) with code-split lazy
-  imports per view.
-- Backend: Rust in `src-tauri/src/` exposes `#[tauri::command]`
-  functions. The frontend calls them through a thin wrapper at
-  [`src/lib/api.ts`](src/lib/api.ts).
+  imports per view. The frontend talks only to the Tauri app binary.
 - Static landing site lives in [`website/`](website/) (VitePress 1.6
   with a **custom `Home.vue` that fully replaces the default home
   layout** — the YAML-hero-and-features layout was too constrained for
@@ -87,7 +109,9 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
 
 **Adding a backend command requires four edits in lockstep:**
 
-1. Implement it in the relevant module (see "Backend modules" below).
+1. Implement it in the relevant module under
+   `crates/claude-kit-core/src/` (see "Backend modules" below) and make
+   sure it's `pub`.
 2. Re-export / wrap it as a `#[tauri::command]` in `src-tauri/src/main.rs`.
 3. Register it in the `tauri::generate_handler![...]` list in `main()`
    — **commands not in this list will fail at runtime with no compile
@@ -98,6 +122,10 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
    Rust side, so TS sees `"skills" | "commands" | "agents"`).
 
 ### Backend modules
+
+All under [`crates/claude-kit-core/src/`](crates/claude-kit-core/src/),
+re-exported from [`lib.rs`](crates/claude-kit-core/src/lib.rs) (which
+also declares the crate-wide `HOME_LOCK` test mutex).
 
 - **`library.rs`** — scans the library directory, parses YAML
   frontmatter via `gray_matter` to surface `description` / `tags`.
@@ -229,6 +257,27 @@ Override the library root with `CLAUDE_KIT_HOME` (handy for tests/dev).
   with text. Plugins the model invents (no match in the catalog) are
   silently dropped. Unit-tested.
 
+### CLI (`ck`)
+
+[`crates/claude-kit-cli/src/main.rs`](crates/claude-kit-cli/src/main.rs)
+is a clap-based binary named `ck` that wraps `claude_kit_core` for
+terminal use — same library functions as the desktop app, no Tauri, no
+IPC. Current command surface:
+
+- `ck apply <bundle> [--replace] [project]` — reads the bundle, applies
+  each ref via `project::apply_one` (skills/commands/agents),
+  `apply_hook`/`apply_hook_local`, or `apply_mcp`/`apply_mcp_local`.
+  Project defaults to the current dir.
+- `ck list` — list available bundles.
+- `ck installed [project]` — show what's symlinked into the project's
+  `.claude/`.
+- `ck clean [project]` — remove our symlinks from the project.
+
+The CLI never reaches into Tauri-only code; if a feature must work in
+both surfaces, the logic belongs in `claude-kit-core`. (`docs/cli-roadmap.md`
+still labels this work "deferred" — that doc is stale; the MVP above
+ships.)
+
 ### Frontend conventions
 
 - **Pinia stores are decomposed by concern** under
@@ -308,13 +357,21 @@ npm run build                     # vue-tsc typecheck + vite build (frontend onl
 npx vue-tsc --noEmit              # typecheck without building
 ```
 
-For the Rust side specifically:
+For the Rust side specifically (run from the workspace root):
 
 ```bash
-cd src-tauri && cargo check --no-default-features    # fast type-check
-cd src-tauri && cargo clippy --no-default-features   # lint
-cd src-tauri && cargo test  --no-default-features    # network-tagged tests are #[ignore]'d; run with --ignored
+cargo check  -p claude-kit-core                      # core logic, fast — no Tauri, no dist/ check
+cargo test   -p claude-kit-core                      # the ~145 unit tests live here
+cargo clippy -p claude-kit-core
+cargo build  -p claude-kit-cli                        # builds the `ck` binary
+cd src-tauri && cargo check  --no-default-features    # type-check the Tauri app (see below)
+cd src-tauri && cargo clippy --no-default-features
+cd src-tauri && cargo test   --no-default-features    # network-tagged tests are #[ignore]'d; run with --ignored
 ```
+
+Most logic changes only need `-p claude-kit-core`, which is fast and
+sidesteps the Tauri `dist/` check entirely. The `--no-default-features`
+flag is only relevant when checking the `src-tauri` app crate.
 
 **Why `--no-default-features`?** The default `custom-protocol` feature
 makes Tauri's `generate_context!()` macro validate at compile time that
@@ -334,11 +391,12 @@ cd website && npm run dev         # http://localhost:5173 with HMR
 cd website && npm run build       # → website/.vitepress/dist/
 ```
 
-There is no test runner configured for the frontend itself. Backend
-modules carry **~145 unit tests** across `library`, `bundles`,
-`harmonize`, `recommend`, `marketplace`, `settings`, `project`, and
-`bundle_chat`. They mutate `CLAUDE_KIT_HOME` via env var, so they all
-serialize on a crate-level `HOME_LOCK: Mutex<()>` declared in `main.rs`
+There is no test runner configured for the frontend itself. The
+`claude-kit-core` crate carries **~145 unit tests** across `library`,
+`bundles`, `harmonize`, `recommend`, `marketplace`, `settings`,
+`project`, and `bundle_chat`. They mutate `CLAUDE_KIT_HOME` via env var,
+so they all serialize on a crate-level `HOME_LOCK: Mutex<()>` declared
+in [`crates/claude-kit-core/src/lib.rs`](crates/claude-kit-core/src/lib.rs)
 — when adding a new test module, use `crate::HOME_LOCK` (not a
 per-module static) so tests from different modules don't race on the env
 var when the test runner parallelises across modules.
